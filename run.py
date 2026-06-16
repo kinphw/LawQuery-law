@@ -71,6 +71,22 @@ def cmd_ingest(args):
         print(f"    {SHEETS[s][0]:14s} {n:>5d} 행")
 
 
+def cmd_export(args):
+    if not LAW_RE.fullmatch(args.law):
+        sys.exit("❌ --law 는 영소문자/숫자/_ 1~16자여야 합니다.")
+    from exporter.db_export import export_to_excel
+    out, data = export_to_excel(args.law, args.out, target=args.target)
+    print(f"✅ export: ldb_{args.law} ({args.target}) → {out}")
+    for s in LOAD_ORDER:
+        if data.get(s):
+            print(f"    {s:10s} {len(data[s]):>5d} 행")
+
+
+def cmd_gui(_args):
+    from gui.app import main as gui_main
+    gui_main()
+
+
 def main():
     ap = argparse.ArgumentParser(description="LawQuery 법령 엑셀 → DB 적재 파이프라인")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -87,7 +103,18 @@ def main():
     g.add_argument("--recreate", action="store_true", help="기존 ldb_<코드> DROP 후 재생성")
     g.set_defaults(func=cmd_ingest)
 
+    e = sub.add_parser("export", help="기존 법 DB → 엑셀(템플릿 형식)")
+    e.add_argument("--law", required=True, help="법 코드(예: j)")
+    e.add_argument("-o", "--out", default=None, help="출력 엑셀 경로(기본: ldb_<코드>.xlsx)")
+    e.add_argument("--target", choices=["dev", "prod"], default="dev")
+    e.set_defaults(func=cmd_export)
+
+    u = sub.add_parser("gui", help="데스크톱 GUI 실행 (법 선택·표 편집·저장·가져오기)")
+    u.set_defaults(func=cmd_gui)
+
     args = ap.parse_args()
+    if getattr(args, "cmd", None) == "export" and not args.out:
+        args.out = f"ldb_{args.law}.xlsx"
     args.func(args)
 
 
