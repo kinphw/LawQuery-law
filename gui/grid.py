@@ -1,8 +1,9 @@
 """
 편집 가능한 표 위젯 (레코드 단위 즉시 반영).
-  TableTab : Treeview + 추가/편집/삭제. 각 동작이 editor(LiveEditor)를 통해
-             지정 레코드 하나만 INSERT/UPDATE/DELETE 한다. (전체 교체 아님)
-  RowForm  : 컬럼별 입력칸(긴 텍스트=멀티라인). '__pk'는 화면에 안 보임.
+  - 셀 더블클릭: 인라인 수정(짧은 컬럼=셀 오버레이 입력칸, 긴 본문=텍스트 팝업)
+  - "✎ 편집" 버튼: 행 전체 폼 편집
+  - "＋ 추가" / "🗑 삭제"
+모든 변경은 editor(LiveEditor)를 통해 지정 레코드 하나만 INSERT/UPDATE/DELETE.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -24,6 +25,8 @@ def _disp(v, width=70):
 
 
 class RowForm(tk.Toplevel):
+    """행 전체 편집 폼."""
+
     def __init__(self, master, title, columns, row, on_ok):
         super().__init__(master)
         self.title(title)
@@ -65,21 +68,48 @@ class RowForm(tk.Toplevel):
         self.destroy()
 
 
+class CellTextEditor(tk.Toplevel):
+    """긴 본문 컬럼용 단일 셀 멀티라인 편집 팝업."""
+
+    def __init__(self, master, title, value, on_ok):
+        super().__init__(master)
+        self.title(title)
+        self.on_ok = on_ok
+        self.transient(master)
+        self.grab_set()
+        frm = ttk.Frame(self, padding=10)
+        frm.pack(fill="both", expand=True)
+        self.txt = tk.Text(frm, width=80, height=12, wrap="word")
+        self.txt.insert("1.0", "" if value is None else str(value))
+        self.txt.pack(fill="both", expand=True)
+        self.txt.focus_set()
+        btns = ttk.Frame(frm)
+        btns.pack(pady=(8, 0))
+        ttk.Button(btns, text="확인", command=self._ok).pack(side="left", padx=4)
+        ttk.Button(btns, text="취소", command=self.destroy).pack(side="left", padx=4)
+        self.bind("<Escape>", lambda e: self.destroy())
+
+    def _ok(self):
+        v = self.txt.get("1.0", "end-1c").strip() or None
+        self.on_ok(v)
+        self.destroy()
+
+
 class TableTab(ttk.Frame):
     def __init__(self, master, sheet, columns, rows, editor, on_status=None):
         super().__init__(master)
         self.sheet = sheet
         self.columns = columns
-        self.rows = rows          # data[sheet] 참조 (각 행에 __pk 포함)
-        self.editor = editor      # LiveEditor
+        self.rows = rows          # data[sheet] 참조 (각 행에 __pk)
+        self.editor = editor
         self.on_status = on_status or (lambda m: None)
 
         bar = ttk.Frame(self)
         bar.pack(fill="x", pady=3)
         ttk.Button(bar, text="＋ 추가", command=self.add).pack(side="left", padx=2)
-        ttk.Button(bar, text="✎ 편집", command=self.edit).pack(side="left", padx=2)
+        ttk.Button(bar, text="✎ 편집(행)", command=self.edit).pack(side="left", padx=2)
         ttk.Button(bar, text="🗑 삭제", command=self.delete).pack(side="left", padx=2)
-        ttk.Label(bar, text="변경은 즉시 DB 반영").pack(side="left", padx=10)
+        ttk.Label(bar, text="셀 더블클릭=즉석 수정 · 변경 즉시 반영").pack(side="left", padx=10)
         self.count_lbl = ttk.Label(bar, text="")
         self.count_lbl.pack(side="right", padx=6)
 
@@ -97,9 +127,10 @@ class TableTab(ttk.Frame):
         xsb.grid(row=1, column=0, sticky="ew")
         wrap.rowconfigure(0, weight=1)
         wrap.columnconfigure(0, weight=1)
-        self.tree.bind("<Double-1>", lambda e: self.edit())
+        self.tree.bind("<Double-1>", self._on_double_click)
         self.refresh()
 
+    # ----- 표시 -----
     def refresh(self):
         self.tree.delete(*self.tree.get_children())
         for i, row in enumerate(self.rows):
@@ -107,11 +138,79 @@ class TableTab(ttk.Frame):
                              values=[_disp(row.get(c)) for c in self.columns])
         self.count_lbl.config(text=f"{len(self.rows)} 행")
 
+    def _update_display(self, idx):
+        self.tree.item(str(idx), values=[_disp(self.rows[idx].get(c)) for c in self.columns])
+
     def _selected(self):
         sel = self.tree.selection()
         return int(sel[0]) if sel else None
 
-    # ----- 레코드 단위 동작(즉시 반영) -----
+    # ----- 셀 인라인 편집 -----
+    def _on_double_click(self, event):
+        if self.tree.identify_region(event.x, event.y) != "cell":
+            return
+        col = self.tree.identify_column(event.x)      # "#N"
+        rowid = self.tree.identify_row(event.y)
+        if not rowid or not col:
+            return
+        ci = int(col[1:]) - 1
+        if not (0 <= ci < len(self.columns)):
+            return
+        idx = int(rowid)
+        colname = self.columns[ci]
+        if colname in LONG_COLS:
+            CellTextEditor(self, f"[{self.sheet}] {colname} (pk={self.rows[idx].get('__pk')})",
+                           self.rows[idx].get(colname),
+                           lambda v: self._save_cell(idx, colname, v))
+        else:
+            self._inline_entry(idx, col, colname)
+
+    def _inline_entry(self, idx, col, colname):
+        bbox = self.tree.bbox(str(idx), col)
+        if not bbox:
+            return
+        x, y, w, h = bbox
+        cur = self.rows[idx].get(colname)
+        ent = ttk.Entry(self.tree)
+        ent.insert(0, "" if cur is None else str(cur))
+        ent.select_range(0, "end")
+        ent.focus_set()
+        ent.place(x=x, y=y, width=w, height=h)
+        state = {"done": False}
+
+        def commit(_e=None):
+            if state["done"]:
+                return
+            state["done"] = True
+            val = ent.get().strip() or None
+            ent.destroy()
+            self._save_cell(idx, colname, val)
+
+        def cancel(_e=None):
+            state["done"] = True
+            ent.destroy()
+
+        ent.bind("<Return>", commit)
+        ent.bind("<KP_Enter>", commit)
+        ent.bind("<Escape>", cancel)
+        ent.bind("<FocusOut>", commit)
+
+    def _save_cell(self, idx, colname, val):
+        row = self.rows[idx]
+        if row.get(colname) == val:
+            return
+        old = row.get(colname)
+        row[colname] = val
+        try:
+            self.editor.update(self.sheet, row.get("__pk"), row)
+        except Exception as ex:
+            row[colname] = old
+            messagebox.showerror("수정 실패", str(ex))
+            return
+        self._update_display(idx)
+        self.on_status(f"[{self.sheet}] {colname} 수정 (pk={row.get('__pk')})")
+
+    # ----- 행 단위 동작 -----
     def add(self):
         RowForm(self, f"[{self.sheet}] 행 추가", self.columns, {}, self._on_add)
 
@@ -143,7 +242,7 @@ class TableTab(ttk.Frame):
             return
         row["__pk"] = pk
         self.rows[idx] = row
-        self.refresh()
+        self._update_display(idx)
         self.on_status(f"[{self.sheet}] 1건 수정 (pk={pk})")
 
     def delete(self):
