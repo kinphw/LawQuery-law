@@ -1,9 +1,10 @@
 """
-LawQuery 법령 편집기 (tkinter).
+LawQuery 법령 편집기 (tkinter) — 레코드 단위 편집.
 
-  - 타깃(dev/prod) + 법 DB 선택 → 불러오기 → 표 탭에서 편집
-  - 새 법(엑셀) 가져오기 / 검증 / 엑셀로 내보내기 / 저장(DB)
-편집 엔진은 CLI와 동일(reader/validator/loader/exporter). gui.services 만 호출.
+  - 타깃(dev/prod) + 법 DB 선택 → 불러오기 → 표 탭에서 행 추가/편집/삭제 (즉시 DB 반영)
+  - 새 법(엑셀): 벌크 생성 → 자동으로 편집 모드 진입
+  - 검증 / 엑셀 내보내기
+전체 교체 저장 없음. 각 동작이 지정 레코드 하나만 INSERT/UPDATE/DELETE.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
@@ -19,8 +20,9 @@ class App(tk.Tk):
         super().__init__()
         self.title("LawQuery 법령 편집기")
         self.geometry("1150x740")
-        self.data = None     # 현재 편집 중인 법 데이터
-        self.code = None     # 현재 법 코드
+        self.data = None
+        self.code = None
+        self.editor = None
         self.tabs = {}
 
         self._toolbar()
@@ -31,7 +33,6 @@ class App(tk.Tk):
 
         self._refresh_dbs()
 
-    # ---------- UI ----------
     def _toolbar(self):
         bar = ttk.Frame(self, padding=6)
         bar.pack(fill="x")
@@ -53,7 +54,6 @@ class App(tk.Tk):
         ttk.Button(bar, text="새 법(엑셀)", command=self.import_excel).pack(side="left", padx=2)
         ttk.Button(bar, text="검증", command=self.do_validate).pack(side="left", padx=2)
         ttk.Button(bar, text="엑셀 내보내기", command=self.export_excel).pack(side="left", padx=2)
-        ttk.Button(bar, text="💾 저장(DB)", command=self.save_db).pack(side="left", padx=2)
 
     def set_status(self, msg):
         self.status.config(text=msg)
@@ -75,23 +75,35 @@ class App(tk.Tk):
         self.tabs = {}
         for sheet in LOAD_ORDER:
             cols = SHEETS[sheet][1]
-            tab = TableTab(self.nb, sheet, cols, self.data[sheet])
+            tab = TableTab(self.nb, sheet, cols, self.data[sheet], self.editor,
+                           on_status=self.set_status)
             n = len(self.data[sheet])
             self.nb.add(tab, text=f"{sheet} ({n})" if n else sheet)
             self.tabs[sheet] = tab
         self.title(f"LawQuery 법령 편집기 — {title}")
 
     # ---------- 동작 ----------
+    def _open_live(self, code, title):
+        if self.target.get() == "prod":
+            if not messagebox.askyesno(
+                "운영 편집 주의",
+                f"운영(prod) DB ldb_{code} 를 직접 편집합니다.\n"
+                "모든 변경이 즉시 반영됩니다. 계속할까요?",
+            ):
+                return False
+        self.set_status(f"여는 중: ldb_{code} …")
+        self.editor, self.data = services.LiveEditor.open(code, self.target.get())
+        self.code = code
+        self._build_tabs(title)
+        self.set_status(f"편집 중: ldb_{code} @ {self.target.get()} (변경 즉시 반영)")
+        return True
+
     def load_db(self):
         db = self.db_var.get()
         if not db:
             return
-        self.code = code_of(db)
         try:
-            self.set_status(f"불러오는 중: {db} …")
-            self.data = services.load_db(self.code, self.target.get())
-            self._build_tabs(db)
-            self.set_status(f"불러옴: {db}")
+            self._open_live(code_of(db), db)
         except Exception as ex:
             messagebox.showerror("불러오기 실패", str(ex))
 
@@ -102,13 +114,28 @@ class App(tk.Tk):
         code = simpledialog.askstring("법 코드", "새 법 코드(예: c) → ldb_<코드>:", parent=self)
         if not code:
             return
+        code = code.strip()
         try:
-            self.data, _c, _a = services.load_excel(path)
-            self.code = code.strip()
-            self._build_tabs(f"(엑셀) → ldb_{self.code}")
-            self.set_status(f"엑셀 로드: {path}")
+            data, _c, _a = services.load_excel(path)
+            errors, warnings = services.validate(data)
+            if errors:
+                _report(self, errors, warnings)
+                messagebox.showerror("생성 차단", "검증 오류를 해결한 엑셀로 다시 시도하세요.")
+                return
+            if not messagebox.askyesno(
+                "새 법 생성",
+                f"ldb_{code} @ {self.target.get()} 를 생성합니다.\n"
+                "(같은 이름이 있으면 전체 교체) 계속할까요?",
+            ):
+                return
+            self.set_status(f"생성 중: ldb_{code} …")
+            services.create_law(code, data, self.target.get(), recreate=True)
+            self._refresh_dbs()
+            self.db_var.set(f"ldb_{code}")
+            # 생성 직후 편집 모드로 진입
+            self._open_live(code, f"ldb_{code} (신규)")
         except Exception as ex:
-            messagebox.showerror("엑셀 로드 실패", str(ex))
+            messagebox.showerror("새 법 생성 실패", str(ex))
 
     def do_validate(self):
         if self.data is None:
@@ -133,32 +160,6 @@ class App(tk.Tk):
         except Exception as ex:
             messagebox.showerror("내보내기 실패", str(ex))
 
-    def save_db(self):
-        if self.data is None or not self.code:
-            messagebox.showinfo("저장", "먼저 법을 불러오세요.")
-            return
-        errors, warnings = services.validate(self.data)
-        if errors:
-            _report(self, errors, warnings)
-            messagebox.showerror("저장 차단", "검증 오류를 먼저 해결하세요.")
-            return
-        tgt = self.target.get()
-        if not messagebox.askyesno(
-            "저장 확인",
-            f"ldb_{self.code} @ {tgt} 에 저장합니다.\n"
-            "기존 데이터는 전체 교체(TRUNCATE 후 재적재)됩니다.\n계속할까요?",
-        ):
-            return
-        try:
-            self.set_status("저장 중 …")
-            dbname, counts = services.save_db(self.code, self.data, tgt)
-            total = sum(counts.values())
-            self.set_status(f"저장 완료: {dbname} ({total} 행)")
-            messagebox.showinfo("완료", f"{dbname} 저장 완료 ({total} 행).")
-            self._refresh_dbs()
-        except Exception as ex:
-            messagebox.showerror("저장 실패", str(ex))
-
 
 def _report(master, errors, warnings):
     win = tk.Toplevel(master)
@@ -169,7 +170,7 @@ def _report(master, errors, warnings):
     if not errors and not warnings:
         txt.insert("end", "✅ 검증 통과 (오류·경고 없음)\n")
     if errors:
-        txt.insert("end", f"❌ 오류 {len(errors)}건 (저장 차단):\n")
+        txt.insert("end", f"❌ 오류 {len(errors)}건:\n")
         for e in errors:
             txt.insert("end", f"  - {e}\n")
         txt.insert("end", "\n")

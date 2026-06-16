@@ -71,41 +71,51 @@ CREATE TABLE IF NOT EXISTS `db_meta` (
 
 -- 참조
 CREATE TABLE IF NOT EXISTS `db_ref` (
+  `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `id` bigint(20) DEFAULT NULL,
   `id_origin` text DEFAULT NULL,
   `ref_type` text DEFAULT NULL,
   `ref_target` text DEFAULT NULL,
-  `ref_content` text DEFAULT NULL
+  `ref_content` text DEFAULT NULL,
+  PRIMARY KEY (`_pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 연계 엣지 (id_start → id_end). 5단 연계의 핵심.
 CREATE TABLE IF NOT EXISTS `rdb` (
+  `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `id` bigint(20) DEFAULT NULL,
   `id_start` text DEFAULT NULL,
-  `id_end` text DEFAULT NULL
+  `id_end` text DEFAULT NULL,
+  PRIMARY KEY (`_pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 벌칙 (선택)
 CREATE TABLE IF NOT EXISTS `db_penalty` (
+  `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `id` bigint(20) DEFAULT NULL,
   `penalty_a_phy` text DEFAULT NULL,
-  `penalty_a_log` text DEFAULT NULL
+  `penalty_a_log` text DEFAULT NULL,
+  PRIMARY KEY (`_pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `db_penalty_a` (
+  `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `id` bigint(20) DEFAULT NULL,
   `category` text DEFAULT NULL,
   `item_a_phy` text DEFAULT NULL,
   `item_a_log` text DEFAULT NULL,
   `content_pa` text DEFAULT NULL,
   `penalty_a_phy` text DEFAULT NULL,
-  `id_a` text DEFAULT NULL
+  `id_a` text DEFAULT NULL,
+  PRIMARY KEY (`_pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `db_penalty_e` (
+  `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `id` bigint(20) DEFAULT NULL,
   `content_pe` text DEFAULT NULL,
   `item_a_log` text DEFAULT NULL,
   `penalty_e_log` text DEFAULT NULL,
-  `item_a_phy` text DEFAULT NULL
+  `item_a_phy` text DEFAULT NULL,
+  PRIMARY KEY (`_pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;

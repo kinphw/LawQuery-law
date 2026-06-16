@@ -34,3 +34,14 @@ AUTO_ID_SHEETS = ["ref", "rdb", "penalty", "penalty_a", "penalty_e"]
 
 # 적재 순서(부모 단을 먼저). meta → 본문 → 별표/참조/연계 → 벌칙
 LOAD_ORDER = ["meta", "a", "e", "s", "r", "annex", "ref", "rdb", "penalty", "penalty_a", "penalty_e"]
+
+# 레코드 단위 편집용 PK 컬럼(시트별). 에디터가 이 키로 UPDATE/DELETE 한다.
+PK_COLUMN = {
+    "meta": "_pk", "a": "_pk", "e": "_pk", "s": "_pk", "r": "_pk",
+    "annex": "id",
+    "ref": "_pk", "rdb": "_pk",
+    "penalty": "_pk", "penalty_a": "_pk", "penalty_e": "_pk",
+}
+
+# 원래 PK가 없어 편집용 surrogate _pk 를 붙여야 하는 테이블(편집 진입 시 자동 ALTER)
+NEEDS_SURROGATE_PK = ["ref", "rdb", "penalty", "penalty_a", "penalty_e"]

@@ -1,13 +1,12 @@
 """
-편집 가능한 표 위젯.
-  TableTab : Treeview(목록) + 추가/편집/삭제. 행은 모달 폼(RowForm)으로 편집.
-  RowForm  : 컬럼별 입력칸. 긴 텍스트 컬럼은 멀티라인.
-backing list(rows)는 외부 data[sheet] 의 참조라 편집이 곧 모델에 반영된다.
+편집 가능한 표 위젯 (레코드 단위 즉시 반영).
+  TableTab : Treeview + 추가/편집/삭제. 각 동작이 editor(LiveEditor)를 통해
+             지정 레코드 하나만 INSERT/UPDATE/DELETE 한다. (전체 교체 아님)
+  RowForm  : 컬럼별 입력칸(긴 텍스트=멀티라인). '__pk'는 화면에 안 보임.
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-# 멀티라인 입력으로 띄울 긴 텍스트 컬럼
 LONG_COLS = {
     "content_a", "content_e", "content_s", "content_r",
     "content_a_sched", "content_e_sched", "content_s_sched", "content_r_sched",
@@ -67,17 +66,20 @@ class RowForm(tk.Toplevel):
 
 
 class TableTab(ttk.Frame):
-    def __init__(self, master, sheet, columns, rows):
+    def __init__(self, master, sheet, columns, rows, editor, on_status=None):
         super().__init__(master)
         self.sheet = sheet
         self.columns = columns
-        self.rows = rows  # 외부 data[sheet] 참조
+        self.rows = rows          # data[sheet] 참조 (각 행에 __pk 포함)
+        self.editor = editor      # LiveEditor
+        self.on_status = on_status or (lambda m: None)
 
         bar = ttk.Frame(self)
         bar.pack(fill="x", pady=3)
         ttk.Button(bar, text="＋ 추가", command=self.add).pack(side="left", padx=2)
         ttk.Button(bar, text="✎ 편집", command=self.edit).pack(side="left", padx=2)
         ttk.Button(bar, text="🗑 삭제", command=self.delete).pack(side="left", padx=2)
+        ttk.Label(bar, text="변경은 즉시 DB 반영").pack(side="left", padx=10)
         self.count_lbl = ttk.Label(bar, text="")
         self.count_lbl.pack(side="right", padx=6)
 
@@ -109,9 +111,20 @@ class TableTab(ttk.Frame):
         sel = self.tree.selection()
         return int(sel[0]) if sel else None
 
+    # ----- 레코드 단위 동작(즉시 반영) -----
     def add(self):
-        RowForm(self, f"[{self.sheet}] 행 추가", self.columns, {},
-                lambda r: (self.rows.append(r), self.refresh()))
+        RowForm(self, f"[{self.sheet}] 행 추가", self.columns, {}, self._on_add)
+
+    def _on_add(self, row):
+        try:
+            pk = self.editor.insert(self.sheet, row)
+        except Exception as ex:
+            messagebox.showerror("추가 실패", str(ex))
+            return
+        row["__pk"] = pk
+        self.rows.append(row)
+        self.refresh()
+        self.on_status(f"[{self.sheet}] 1건 추가 (pk={pk})")
 
     def edit(self):
         idx = self._selected()
@@ -119,13 +132,33 @@ class TableTab(ttk.Frame):
             messagebox.showinfo("편집", "행을 선택하세요.")
             return
         RowForm(self, f"[{self.sheet}] 행 편집", self.columns, self.rows[idx],
-                lambda r: (self.rows.__setitem__(idx, r), self.refresh()))
+                lambda r: self._on_edit(idx, r))
+
+    def _on_edit(self, idx, row):
+        pk = self.rows[idx].get("__pk")
+        try:
+            self.editor.update(self.sheet, pk, row)
+        except Exception as ex:
+            messagebox.showerror("수정 실패", str(ex))
+            return
+        row["__pk"] = pk
+        self.rows[idx] = row
+        self.refresh()
+        self.on_status(f"[{self.sheet}] 1건 수정 (pk={pk})")
 
     def delete(self):
         idx = self._selected()
         if idx is None:
             messagebox.showinfo("삭제", "행을 선택하세요.")
             return
-        if messagebox.askyesno("삭제", "선택한 행을 삭제할까요?"):
-            del self.rows[idx]
-            self.refresh()
+        pk = self.rows[idx].get("__pk")
+        if not messagebox.askyesno("삭제", "선택한 행을 DB에서 삭제할까요?"):
+            return
+        try:
+            self.editor.delete(self.sheet, pk)
+        except Exception as ex:
+            messagebox.showerror("삭제 실패", str(ex))
+            return
+        del self.rows[idx]
+        self.refresh()
+        self.on_status(f"[{self.sheet}] 1건 삭제 (pk={pk})")

@@ -34,15 +34,18 @@ python run.py ingest --law c --excel data/foo.xlsx --apply --target prod --recre
 # 5) 기존 법 DB → 엑셀로 내보내기 (수정용)
 python run.py export --law j -o ldb_j.xlsx
 
-# 6) GUI (법 선택·표 편집·연계 편집·검증·저장 + 새 법 가져오기)
+# 6) GUI (법 선택·레코드 단위 편집·검증 + 새 법 가져오기)
 python run.py gui
 ```
 
 ### GUI
 
 `python run.py gui` → 데스크톱 편집기(tkinter). 타깃(dev/prod)·법 DB 선택 → **불러오기** →
-탭(a/e/s/r/annex/ref/rdb/meta/penalty)에서 행 추가·편집·삭제 → **검증** → **저장(DB)**.
-새 법은 **새 법(엑셀)** 으로 가져와 편집 후 저장. 편집 엔진은 CLI와 동일(reader/validator/loader).
+탭(a/e/s/r/annex/ref/rdb/meta/penalty)에서 행 **추가·편집·삭제 시 그 레코드만 즉시 DB 반영**
+(지정 레코드 UPDATE/INSERT/DELETE — 전체 교체 아님). **검증**으로 dangling 연계·중복 점검.
+**새 법(엑셀)** 은 벌크 생성 후 곧바로 편집 모드 진입.
+
+> PK 없던 `rdb`/`ref`/`penalty*` 는 편집 진입 시 편집용 surrogate `_pk` 를 자동 부여한다(idempotent).
 
 > 적재는 매번 TRUNCATE 후 재적재(idempotent). `--law` 코드가 곧 DB명(`ldb_<코드>`)이며
 > 백엔드는 `?law=<코드>`로 자동 라우팅된다(코드 수정 불필요). 새 법 노출은 프론트 법 선택 UI만 추가.
@@ -57,8 +60,9 @@ python run.py gui
 | `schema/ddl.sql` | `ldb_<x>` 표준 스키마 (11테이블) |
 | `reader/excel_reader.py` | 엑셀 → 행 dict (NULL·숫자 보정) |
 | `validator/validate.py` | dangling rdb·중복 ID·누락 검증 |
-| `loader/loader.py` | CREATE DB → DDL → TRUNCATE+INSERT (트랜잭션) |
-| `exporter/db_export.py` | 기존 법 DB → 행 dict / 엑셀 (GUI·export 공용) |
+| `loader/loader.py` | 새 법 벌크 생성: CREATE DB → DDL → TRUNCATE+INSERT |
+| `exporter/db_export.py` | 기존 법 DB → 행 dict / 엑셀 (export·읽기) |
+| `editor/record_db.py` | **레코드 단위** INSERT/UPDATE/DELETE (즉시 반영) + surrogate `_pk` |
 | `template/make_template.py` | 빈 엑셀 템플릿 + 예시행 |
 | `gui/` | tkinter 편집기 (app / grid / services) |
 
