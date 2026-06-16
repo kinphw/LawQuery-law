@@ -1,0 +1,26 @@
+# --- 비밀/환경 (절대 커밋 금지) ---
+.env
+.env.local
+
+# --- 입력 데이터 / 산출물 (git 제외) ---
+data/
+logs/
+# 입력 엑셀·생성된 템플릿 (재생성 가능)
+*.xlsx
+*.pkl
+_ldb_j_schema_raw.sql
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# --- 에디터 ---
+.vscode/
+.idea/
+*.code-workspace
+
+# 참고: .env.example 은 추적함(템플릿). *.xlsx 를 굳이 커밋하려면 git add -f
