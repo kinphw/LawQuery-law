@@ -5,10 +5,12 @@ MySQL/MariaDB 연결 헬퍼.
 LawQuery 본체·frc 와 동일한 자격증명 컨벤션.
 """
 import os
+from pathlib import Path
 import pymysql
 from dotenv import load_dotenv
 
-load_dotenv()
+# .pyw 더블클릭 등 cwd가 달라도 프로젝트 루트의 .env 를 확실히 로드
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 def _conf(target: str = "dev") -> dict:

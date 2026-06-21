@@ -38,12 +38,14 @@ python run.py export --law j -o ldb_j.xlsx
 python run.py gui
 ```
 
-### GUI
+### GUI (순수 GUI 도구)
 
-`python run.py gui` → 데스크톱 편집기(tkinter). 타깃(dev/prod)·법 DB 선택 → **불러오기** →
+**실행: `LawEditor.pyw` 더블클릭** (콘솔 없음) — 또는 `python run.py gui`.
+
+데스크톱 편집기(tkinter). 타깃(dev/prod)·법 DB 선택 → **불러오기** →
 탭(a/e/s/r/annex/ref/rdb/meta/penalty)에서 행 **추가·편집·삭제 시 그 레코드만 즉시 DB 반영**
 (지정 레코드 UPDATE/INSERT/DELETE — 전체 교체 아님). **검증**으로 dangling 연계·중복 점검.
-**새 법(엑셀)** 은 벌크 생성 후 곧바로 편집 모드 진입.
+- **빈 템플릿**: 형식 참고용 엑셀 생성(외부 파싱도구로 채움) → **새 법(엑셀)** 으로 가져와 벌크 생성 후 편집.
 
 > PK 없던 `rdb`/`ref`/`penalty*` 는 편집 진입 시 편집용 surrogate `_pk` 를 자동 부여한다(idempotent).
 

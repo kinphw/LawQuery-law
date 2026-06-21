@@ -6,6 +6,7 @@ LawQuery 법령 편집기 (tkinter) — 레코드 단위 편집.
   - 검증 / 엑셀 내보내기
 전체 교체 저장 없음. 각 동작이 지정 레코드 하나만 INSERT/UPDATE/DELETE.
 """
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 
@@ -51,9 +52,26 @@ class App(tk.Tk):
         ttk.Button(bar, text="불러오기", command=self.load_db).pack(side="left", padx=2)
 
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Button(bar, text="빈 템플릿", command=self.make_template).pack(side="left", padx=2)
         ttk.Button(bar, text="새 법(엑셀)", command=self.import_excel).pack(side="left", padx=2)
         ttk.Button(bar, text="검증", command=self.do_validate).pack(side="left", padx=2)
         ttk.Button(bar, text="엑셀 내보내기", command=self.export_excel).pack(side="left", padx=2)
+
+    def make_template(self):
+        out = filedialog.asksaveasfilename(
+            defaultextension=".xlsx", initialfile="template_law.xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+        )
+        if not out:
+            return
+        try:
+            from template.make_template import build
+            build(out)
+            self.set_status(f"빈 템플릿 생성: {out}")
+            if messagebox.askyesno("템플릿 생성", f"생성됨:\n{out}\n\n엑셀로 열까요?"):
+                os.startfile(out)
+        except Exception as ex:
+            messagebox.showerror("템플릿 생성 실패", str(ex))
 
     def set_status(self, msg):
         self.status.config(text=msg)
