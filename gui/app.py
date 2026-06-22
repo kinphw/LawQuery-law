@@ -57,6 +57,14 @@ class App(tk.Tk):
         ttk.Button(bar, text="검증", command=self.do_validate).pack(side="left", padx=2)
         ttk.Button(bar, text="엑셀 내보내기", command=self.export_excel).pack(side="left", padx=2)
 
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Button(bar, text="법령 목록 관리", command=self.open_registry).pack(side="left", padx=2)
+
+    def open_registry(self):
+        """ldb_auth.law_registry(법령 카탈로그) 관리 창. per-law 편집과 분리된 관리자 영역."""
+        from gui.registry_window import RegistryWindow
+        RegistryWindow(self, self.target.get())
+
     def make_template(self):
         out = filedialog.asksaveasfilename(
             defaultextension=".xlsx", initialfile="template_law.xlsx",
@@ -98,6 +106,12 @@ class App(tk.Tk):
             n = len(self.data[sheet])
             self.nb.add(tab, text=f"{sheet} ({n})" if n else sheet)
             self.tabs[sheet] = tab
+        # rdb 매핑 점검 탭(하위규정 조문별 상위 위임 현황·편집) — 로드된 법에 묶임
+        try:
+            from gui.rdb_map_tab import RdbMapTab
+            self.nb.add(RdbMapTab(self.nb, self.code, self.target.get()), text="🔗 rdb 점검")
+        except Exception as ex:
+            self.set_status(f"rdb 점검 탭 로드 실패: {ex}")
         self.title(f"LawQuery 법령 편집기 — {title}")
 
     # ---------- 동작 ----------

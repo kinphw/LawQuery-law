@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "law": {
+      "command": "node",
+      "args": ["C:/projects/LawQuery-law/mcp/law-mcp/dist/index.js"],
+      "env": {
+        "LAW_OC": "발급받은_OC값"
+      }
+    }
+  }
+}

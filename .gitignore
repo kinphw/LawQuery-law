@@ -24,3 +24,12 @@ venv/
 *.code-workspace
 
 # 참고: .env.example 은 추적함(템플릿). *.xlsx 를 굳이 커밋하려면 git add -f
+
+# node / MCP
+node_modules/
+mcp/**/node_modules/
+.mcp.json
+
+# 적재 작업물(per-law) — job.json(레시피)만 추적, 산출물(data/rdb/annex/ref/penalty…)은 전부 제외
+jobs/**/*.json
+!jobs/**/job.json
