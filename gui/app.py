@@ -59,11 +59,51 @@ class App(tk.Tk):
 
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="법령 목록 관리", command=self.open_registry).pack(side="left", padx=2)
+        ttk.Button(bar, text="운영 배포", command=self.deploy_prod).pack(side="left", padx=2)
 
     def open_registry(self):
         """ldb_auth.law_registry(법령 카탈로그) 관리 창. per-law 편집과 분리된 관리자 영역."""
         from gui.registry_window import RegistryWindow
         RegistryWindow(self, self.target.get())
+
+    def deploy_prod(self):
+        """선택한 개발 ldb_<code> 를 운영으로 **정확복제**(mysqldump→mysql, SSH 터널).
+        파이프라인 재실행이 아니라 세션·GUI로 다듬은 개발 DB asis 를 그대로 옮긴다."""
+        db = self.db_var.get()
+        if not db:
+            messagebox.showinfo("운영 배포", "배포할 법 DB를 선택하세요.")
+            return
+        code = code_of(db)
+        if not messagebox.askyesno(
+            "운영 배포 — 주의",
+            f"개발 '{db}' 를 운영으로 정확복제합니다.\n"
+            f"운영의 '{db}' 는 DROP 후 개발본으로 교체됩니다(스키마·데이터 그대로).\n\n"
+            "레지스트리(law_registry)는 별도이니 노출은 '법령 목록 관리'에서 처리하세요.\n\n계속할까요?",
+        ):
+            return
+        self.set_status(f"운영 배포 중: {db} … (SSH 터널·mysqldump)")
+
+        import threading
+
+        def work():
+            logs = []
+            try:
+                from common.replicate import replicate_db
+                replicate_db(code, log=lambda m: logs.append(m))
+                self.after(0, lambda: self._deploy_done(db, True, "\n".join(logs)))
+            except Exception as ex:
+                msg = "\n".join(logs + [f"오류: {ex}"])
+                self.after(0, lambda: self._deploy_done(db, False, msg))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _deploy_done(self, db, ok, log):
+        if ok:
+            self.set_status(f"운영 배포 완료: {db}")
+            messagebox.showinfo("운영 배포 완료", f"{db} → 운영 복제 완료.\n\n{log}")
+        else:
+            self.set_status(f"운영 배포 실패: {db}")
+            messagebox.showerror("운영 배포 실패", log)
 
     def make_template(self):
         out = filedialog.asksaveasfilename(

@@ -3,3 +3,6 @@ openpyxl>=3.1
 PyMySQL>=1.1
 python-dotenv>=1.0
 requests>=2.31
+# 운영 배포(개발→운영 정확복제) SSH 터널용 — common/replicate.py
+paramiko>=3.0
+sshtunnel>=0.4

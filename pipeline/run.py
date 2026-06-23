@@ -3,8 +3,10 @@
   python -m pipeline.run g                  # build → qa → rdb (적재 안 함)
   python -m pipeline.run g --apply          # + ldb_g 적재(dev, recreate)
   python -m pipeline.run g --apply --prod   # 운영 적재
+  python -m pipeline.run g --apply --force  # 이미 존재해도 강제 재적재
 
-build/qa/rdb 는 결정론(재실행 안전). 적재는 TRUNCATE 후 재적재(idempotent).
+build/qa/rdb 는 결정론. ⚠ --apply 는 DROP+재적재라 GUI 수동편집을 전부 덮어쓴다.
+그래서 ldb_<code> 가 이미 있으면 기본 거부 → 의도적 갱신만 --force. (운영 이관은 common.replicate)
 """
 import sys
 
@@ -17,7 +19,28 @@ from pipeline.ref import build_ref
 from pipeline.penalty import build_penalty
 
 
-def run(code: str, apply: bool = False, target: str = "dev"):
+def _db_exists(code: str, target: str) -> bool:
+    from common.db import get_connection
+    conn = get_connection(target=target)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=%s",
+                (f"ldb_{code}",),
+            )
+            return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def run(code: str, apply: bool = False, target: str = "dev", force: bool = False):
+    # ── 안전장치: 이미 존재하는 DB 를 --apply 로 덮어쓰면 GUI 수동편집(rdb 보정 등)이 사라짐 ──
+    if apply and not force and _db_exists(code, target):
+        print(f"⛔ ldb_{code} 가 이미 {target} 에 존재합니다 — 재적재 중단(수동편집 보호).")
+        print("   --apply 는 DROP+재적재라 GUI 수정(rdb 보정·항/호 미세조정)이 전부 사라집니다.")
+        print(f"   • 규정 갱신 등 의도적 재생성:  python -m pipeline.run {code} --apply --force")
+        print(f"   • 운영 이관/복제(현재 DB asis): python -m common.replicate {code}")
+        return
     print(f"=== [{code}] build ===");    build(code)
     print(f"=== [{code}] qa ===")
     if not check(code):
@@ -50,4 +73,5 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     args = sys.argv[1:]
     code = next((a for a in args if not a.startswith("-")), "g")
-    run(code, apply="--apply" in args, target="prod" if "--prod" in args else "dev")
+    run(code, apply="--apply" in args, target="prod" if "--prod" in args else "dev",
+        force="--force" in args)
