@@ -54,8 +54,14 @@ def run(code: str, apply: bool = False, target: str = "dev", force: bool = False
         return
 
     from loader.loader import load
+    from pipeline.overrides import load_overrides, apply_rdb_overrides
     data = read_artifact(code, "data.json")
-    data["rdb"] = [{"id": None, **e} for e in read_artifact(code, "rdb.json")["edges"]]
+    # rdb = 자동(rdb.json) + 사람 오버라이드(overrides.json). 안정 ID라 갱신 후에도 재적용.
+    valid = {row[f"id_{t}"] for t in ("a", "e", "s", "r")
+             for row in data[t] if row.get(f"id_{t}")}
+    final_rdb = apply_rdb_overrides(read_artifact(code, "rdb.json")["edges"],
+                                    load_overrides(code), valid)
+    data["rdb"] = [{"id": None, **e} for e in final_rdb]
     data["annex"] = read_artifact(code, "annex.json")
     data["ref"] = read_artifact(code, "ref.json")
     pen = read_artifact(code, "penalty.json")

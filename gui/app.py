@@ -56,10 +56,37 @@ class App(tk.Tk):
         ttk.Button(bar, text="새 법(엑셀)", command=self.import_excel).pack(side="left", padx=2)
         ttk.Button(bar, text="검증", command=self.do_validate).pack(side="left", padx=2)
         ttk.Button(bar, text="엑셀 내보내기", command=self.export_excel).pack(side="left", padx=2)
+        ttk.Button(bar, text="오버라이드 저장", command=self.save_overrides).pack(side="left", padx=2)
 
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="법령 목록 관리", command=self.open_registry).pack(side="left", padx=2)
         ttk.Button(bar, text="운영 배포", command=self.deploy_prod).pack(side="left", padx=2)
+
+    def save_overrides(self):
+        """현재 rdb 수동수정을 jobs/<code>/overrides.json 에 박제(라이브 ⊖ 자동 델타).
+        규정 갱신(--force) 후에도 이 큐레이션이 자동 재적용된다."""
+        db = self.db_var.get()
+        if not db:
+            messagebox.showinfo("오버라이드 저장", "법 DB를 선택/불러오세요.")
+            return
+        code = code_of(db)
+        try:
+            from pipeline.overrides import capture
+            ov = capture(code, self.target.get(), log=lambda m: None)
+            na, nr = len(ov["rdb"]["add"]), len(ov["rdb"]["remove"])
+            self.set_status(f"오버라이드 저장: add {na}, remove {nr} → jobs/{code}/overrides.json")
+            messagebox.showinfo(
+                "오버라이드 저장",
+                f"현재 rdb 수동수정을 jobs/{code}/overrides.json 에 기록했습니다.\n"
+                f"  추가(add) {na}건, 제거(remove) {nr}건\n\n"
+                "이제 규정 갱신(run --force) 후에도 이 수정이 자동 재적용됩니다.",
+            )
+        except FileNotFoundError:
+            messagebox.showerror("오버라이드 저장 실패",
+                                 f"jobs/{code}/rdb.json(자동 베이스)이 없습니다.\n"
+                                 "파이프라인으로 생성된 법이라야 오버라이드 기준이 있습니다.")
+        except Exception as ex:
+            messagebox.showerror("오버라이드 저장 실패", str(ex))
 
     def open_registry(self):
         """ldb_auth.law_registry(법령 카탈로그) 관리 창. per-law 편집과 분리된 관리자 영역."""

@@ -30,6 +30,7 @@ node_modules/
 mcp/**/node_modules/
 .mcp.json
 
-# 적재 작업물(per-law) — job.json(레시피)만 추적, 산출물(data/rdb/annex/ref/penalty…)은 전부 제외
+# 적재 작업물(per-law) — job.json(레시피)·overrides.json(수동 큐레이션)만 추적, 산출물은 제외
 jobs/**/*.json
 !jobs/**/job.json
+!jobs/**/overrides.json
