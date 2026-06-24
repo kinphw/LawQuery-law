@@ -1,32 +1,32 @@
 {
  "rdb": {
   "add": [
-   [
-    "A1",
-    "E1"
-   ],
-   [
-    "E1",
-    "S1"
-   ],
-   [
-    "S1",
-    "R1"
-   ]
+   {
+    "id_start": "A1",
+    "id_end": "E1"
+   },
+   {
+    "id_start": "E1",
+    "id_end": "S1"
+   },
+   {
+    "id_start": "S1",
+    "id_end": "R1"
+   }
   ],
   "remove": [
-   [
-    "A27",
-    "E1"
-   ],
-   [
-    "A37",
-    "S1"
-   ],
-   [
-    "S8",
-    "R1"
-   ]
+   {
+    "id_start": "A27",
+    "id_end": "E1"
+   },
+   {
+    "id_start": "A37",
+    "id_end": "S1"
+   },
+   {
+    "id_start": "S8",
+    "id_end": "R1"
+   }
   ]
  }
 }

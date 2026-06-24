@@ -63,7 +63,7 @@ class App(tk.Tk):
         ttk.Button(bar, text="운영 배포", command=self.deploy_prod).pack(side="left", padx=2)
 
     def save_overrides(self):
-        """현재 rdb 수동수정을 jobs/<code>/overrides.json 에 박제(라이브 ⊖ 자동 델타).
+        """현재 DB의 모든 수동수정(내용·연결 등)을 jobs/<code>/overrides.json 에 박제(라이브 ⊖ 자동).
         규정 갱신(--force) 후에도 이 큐레이션이 자동 재적용된다."""
         db = self.db_var.get()
         if not db:
@@ -73,17 +73,22 @@ class App(tk.Tk):
         try:
             from pipeline.overrides import capture
             ov = capture(code, self.target.get(), log=lambda m: None)
-            na, nr = len(ov["rdb"]["add"]), len(ov["rdb"]["remove"])
-            self.set_status(f"오버라이드 저장: add {na}, remove {nr} → jobs/{code}/overrides.json")
+            if not ov:
+                self.set_status("오버라이드 저장: 변경 없음(자동과 동일)")
+                messagebox.showinfo("오버라이드 저장", "자동 생성본과 차이가 없습니다(저장할 수동수정 없음).")
+                return
+            lines = [f"  {s}: 추가 {len(o.get('add', []))} · 제거 {len(o.get('remove', []))}"
+                     f" · 수정 {len(o.get('modify', {}))}" for s, o in ov.items()]
+            self.set_status(f"오버라이드 저장 → jobs/{code}/overrides.json ({len(ov)}개 테이블)")
             messagebox.showinfo(
                 "오버라이드 저장",
-                f"현재 rdb 수동수정을 jobs/{code}/overrides.json 에 기록했습니다.\n"
-                f"  추가(add) {na}건, 제거(remove) {nr}건\n\n"
-                "이제 규정 갱신(run --force) 후에도 이 수정이 자동 재적용됩니다.",
+                f"현재 수동수정을 jobs/{code}/overrides.json 에 기록했습니다.\n\n"
+                + "\n".join(lines)
+                + "\n\n이제 규정 갱신(run --force) 후에도 이 수정이 자동 재적용됩니다.",
             )
         except FileNotFoundError:
             messagebox.showerror("오버라이드 저장 실패",
-                                 f"jobs/{code}/rdb.json(자동 베이스)이 없습니다.\n"
+                                 f"jobs/{code}/ 산출물(data/rdb/…json)이 없습니다.\n"
                                  "파이프라인으로 생성된 법이라야 오버라이드 기준이 있습니다.")
         except Exception as ex:
             messagebox.showerror("오버라이드 저장 실패", str(ex))
