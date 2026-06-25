@@ -10,7 +10,7 @@ import re
 from lawparse import splitter
 
 _HANG = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮"
-_HO = re.compile(r"^\s*(\d+)(?:의\d+)*\.")
+_HO = re.compile(r"^\s*(\d+)(?:의(\d+))?\.")          # 호번호(+가지호)
 
 
 def _hang_num(line: str):
@@ -19,8 +19,16 @@ def _hang_num(line: str):
 
 
 def _ho_num(line: str):
-    m = _HO.match(line)
+    m = _HO.match(line.strip())
     return int(m.group(1)) if m else None
+
+
+def _ho_key(line: str):
+    """호 ID 키: '6.'→'6', '6의2.'→'6_2' (가지호 구분 — 충돌 방지)."""
+    m = _HO.match(line.strip())
+    if not m:
+        return None
+    return m.group(1) + (f"_{m.group(2)}" if m.group(2) else "")
 
 
 def _unit_num(line: str):
@@ -59,6 +67,6 @@ def split_article(jo_id: str, content: str, level: str = "hang"):
             hstem, hos = _split_by_ho(item)
             children.append((cid, hstem.strip()))
             for ho in hos:
-                m = _ho_num(ho.strip())
-                children.append((f"{cid}_{m}ho" if m else f"{cid}_x", ho.strip()))
+                key = _ho_key(ho)                       # '6'→_6ho, '6의2'→_6_2ho (가지호)
+                children.append((f"{cid}_{key}ho" if key else f"{cid}_x", ho.strip()))
     return stem.strip(), children

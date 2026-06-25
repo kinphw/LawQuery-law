@@ -18,7 +18,7 @@ from pipeline import job_dir, read_artifact, write_artifact
 KEY = {"meta": "origin", "a": "id_a", "e": "id_e", "s": "id_s", "r": "id_r", "annex": "id_annex"}
 CONTENT_TIERS = ("a", "e", "s", "r")
 LINK_SHEETS = ("annex", "ref", "rdb", "penalty", "penalty_a", "penalty_e")  # 델타로 carry
-_CHILD = re.compile(r"^([AESR]\d+(?:_\d+)?)_(\d+)h(?:_(\d+)ho)?$")
+_CHILD = re.compile(r"^([AESR]\d+(?:_\d+)?)_(\d+)h(?:_(\d+)(?:_\d+)?ho)?$")  # 가지호 _6_2ho 허용
 
 
 def _cmp(x):
