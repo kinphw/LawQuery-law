@@ -15,10 +15,11 @@ from pipeline import load_job, read_artifact, write_artifact
 from fetcher import law_api
 from lawparse.article_split import split_article
 from lawparse.penalty_table import parse_penalty_annex, parse_suspension_annex, refs_in
+from lawparse.ids import resolve_node
 
 _KIND = re.compile(r"(벌칙|과태료|과징금)")
 _AMOUNT = re.compile(r"\d+년\s*이하의\s*징역|[\d천백만억,]+\s*원\s*이하의\s*(?:벌금|과태료|과징금)")
-_VIOL = re.compile(r"(?<!」\s)(?<!」)제(\d+)조(?:의(\d+))?")   # 가족 조 인용(「외부법」 직후 제외)
+_VIOL = re.compile(r"(?<!」\s)(?<!」)제(\d+)조(?:의(\d+))?(?:제(\d+)항)?(?:제(\d+)호)?")  # 위반조(「외부법」직후 제외)
 _HANG = re.compile(r"_(\d+)h$")
 _HO = re.compile(r"_(\d+)h_(\d+)(?:_\d+)?ho$")                # 호(가지호 _6_2ho 포함)
 
@@ -35,12 +36,13 @@ def _jo_label(nid: str) -> str:
 
 
 def _viols(txt: str, nodes_a: set) -> list[str]:
-    """본문에서 가족 위반조(존재 노드)만 중복 없이. 준용 등 괄호 제거 후."""
+    """본문에서 가족 위반조 → **최세밀 존재 노드**(항/호). 준용 등 괄호 제거 후, 중복 없이."""
     clean = re.sub(r"\([^)]*\)", "", txt)
     out, seen = [], set()
     for v in _VIOL.finditer(clean):
-        vid = f"A{int(v.group(1))}" + (f"_{int(v.group(2))}" if v.group(2) else "")
-        if vid in nodes_a and vid not in seen:
+        g = tuple(int(x) if x else None for x in v.groups())
+        vid = resolve_node("a", *g, nodes_a)                 # 제25조의2제1항 → A25_2_1h(있으면)
+        if vid and vid not in seen:
             seen.add(vid)
             out.append(vid)
     return out
@@ -49,7 +51,8 @@ def _viols(txt: str, nodes_a: set) -> list[str]:
 def build_penalty(code: str) -> dict:
     job = load_job(code)
     data = read_artifact(code, "data.json")
-    nodes_a = {r["id_a"] for r in data["a"] if r.get("id_a")}
+    from pipeline.overrides import split_tiers
+    nodes_a = {r["id_a"] for r in split_tiers(code)["a"] if r.get("id_a")}  # 분할 후 노드(항/호 위반조)
     penalty, penalty_a = [], []
 
     # ── 법 본문: 벌칙/과태료/과징금 조 → 항=형량, 호=위반조 ──

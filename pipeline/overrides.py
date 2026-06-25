@@ -180,6 +180,15 @@ def capture(code, target="dev", log=print):
     return out
 
 
+def split_tiers(code):
+    """오버라이드 splits/content 적용한 a/e/s/r 행(항/호 분할 반영). build_ref/penalty 입도용."""
+    ov = load_overrides(code)
+    splits = ov.get("splits", {})
+    content = ov.get("content", {})
+    return {t: apply_content_tier(t, auto_rows(code, t), splits, content, log=lambda m: None)
+            for t in CONTENT_TIERS}
+
+
 def build_load_data(code, sheets, log=print):
     """선택 sheet들의 적재 행 구성: a/e/s/r=splits재분리, 나머지=델타. valid_nodes로 rdb검증."""
     ov = load_overrides(code)

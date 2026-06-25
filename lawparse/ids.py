@@ -13,6 +13,23 @@ def stem_id(tier: str, jo, ga=None) -> str:
     return f"{base}_{ga}" if ga else base
 
 
+def resolve_node(tier, jo, ga=None, hang=None, ho=None, nodeset=None):
+    """인용 (조[의ga][제hang항][제ho호]) → nodeset에 존재하는 **가장 세밀한** 노드 ID.
+    nodeset 없으면 조 ID. 매칭 없으면 None. 입도(항/호) 해석의 단일 출처."""
+    base = stem_id(tier, jo, ga)
+    cands = []
+    if hang and ho:
+        cands.append(f"{base}_{hang}h_{ho}ho")
+    if hang:
+        cands.append(f"{base}_{hang}h")
+    if ho and not hang:                       # 호-직속 조(제2조제3호 → A2_3h)
+        cands.append(f"{base}_{ho}h")
+    cands.append(base)
+    if nodeset is None:
+        return cands[0]
+    return next((c for c in cands if c in nodeset), None)
+
+
 def rows_for_tier(tier: str, articles: list[dict]) -> list[dict]:
     rows: list[dict] = []
     seq = 0
