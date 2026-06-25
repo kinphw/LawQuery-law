@@ -73,13 +73,22 @@ class App(tk.Tk):
         try:
             from pipeline.overrides import capture
             ov = capture(code, self.target.get(), log=lambda m: None)
-            if not ov:
+            parts = []
+            if ov.get("splits"):
+                parts.append(f"  분리 {len(ov['splits'])}조")
+            for s in ("rdb", "ref", "annex", "penalty", "penalty_a", "penalty_e"):
+                if s in ov:
+                    o = ov[s]
+                    parts.append(f"  {s}: +{len(o.get('add', []))} / -{len(o.get('remove', []))}"
+                                 f" / ~{len(o.get('modify', {}))}")
+            if ov.get("content"):
+                parts.append(f"  내용 하드코딩 {sum(len(v) for v in ov['content'].values())}건")
+            if not parts:
                 self.set_status("오버라이드 저장: 변경 없음(자동과 동일)")
-                messagebox.showinfo("오버라이드 저장", "자동 생성본과 차이가 없습니다(저장할 수동수정 없음).")
+                messagebox.showinfo("오버라이드 저장", "자동 생성본과 차이가 없습니다.")
                 return
-            lines = [f"  {s}: 추가 {len(o.get('add', []))} · 제거 {len(o.get('remove', []))}"
-                     f" · 수정 {len(o.get('modify', {}))}" for s, o in ov.items()]
-            self.set_status(f"오버라이드 저장 → jobs/{code}/overrides.json ({len(ov)}개 테이블)")
+            lines = parts
+            self.set_status(f"오버라이드 저장 → jobs/{code}/overrides.json")
             messagebox.showinfo(
                 "오버라이드 저장",
                 f"현재 수동수정을 jobs/{code}/overrides.json 에 기록했습니다.\n\n"

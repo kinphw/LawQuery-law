@@ -1,24 +1,24 @@
-"""수동 큐레이션 오버라이드 (전 테이블) — 자동 산출물 위에 사람의 편집 델타를 재적용.
+"""수동 큐레이션 오버라이드 (typed) — 자동 베이스 위에 구조/연결/내용 델타를 재적용.
 
-개념(= Kustomize base+overlay / git rebase):
-  자동 산출물(data/rdb/annex/ref/penalty.json) = 결정론 베이스.
-  overrides.json = 사람 델타(테이블별 add/remove/modify).  적재 = 베이스 + 델타.
-  capture = 라이브 DB(=db_export.read_law) ⊖ 베이스 → overrides.json 박제.
-규정 갱신(--force) 후에도 델타 재적용 → 큐레이션 영속. 안정 ID(A37/S17, id_annex…)가 가능케 함.
+세 종류(신규추출·현행화 동일하게 적용, 차이는 베이스 버전뿐):
+  splits  : {조ID: 'hang'|'hangho'}  — 어느 조를 항/호로 분리. **현행 본문을 재분리**(내용 저장 안 함).
+  links   : rdb/ref/annex/penalty* 델타(add/remove/modify) — 연결·매핑 큐레이션.
+  content : {sheet:{nodeID:{col:val}}} — 명시적 내용 하드코딩만(자동 포맷/버전 노이즈는 안 담음).
 
-테이블 식별:
-  키드(meta/a/e/s/r/annex)  : 키 컬럼으로 add/remove/**modify**(내용 수정 보존).
-  키리스(rdb/ref/penalty*)  : 행 전체(id 제외)로 add/remove.
-rdb add 는 엔드포인트 노드 검증(갱신으로 사라지면 스킵+경고 = rebase 충돌).
-편집은 GUI 편집기('오버라이드 저장') 또는 `python -m pipeline.overrides <code>` 로 박제.
+핵심: splits가 내용을 **베이스에서 재생성**하므로, 현행화 시 내용은 현행·구조는 큐레이션 유지.
+캡처=라이브 DB ⊖ 베이스. 적용 시 splits→재분리, links→델타, content→강제.
 """
 import json
+import re
 import sys
 
 from common.schema_map import SHEETS, AUTO_ID_SHEETS
 from pipeline import job_dir, read_artifact, write_artifact
 
 KEY = {"meta": "origin", "a": "id_a", "e": "id_e", "s": "id_s", "r": "id_r", "annex": "id_annex"}
+CONTENT_TIERS = ("a", "e", "s", "r")
+LINK_SHEETS = ("annex", "ref", "rdb", "penalty", "penalty_a", "penalty_e")  # 델타로 carry
+_CHILD = re.compile(r"^([AESR]\d+(?:_\d+)?)_(\d+)h(?:_(\d+)ho)?$")
 
 
 def _cmp(x):
@@ -29,9 +29,8 @@ def _ident(row, cols):
     return tuple(_cmp(row.get(c)) for c in cols)
 
 
-def auto_rows(code: str, sheet: str) -> list[dict]:
-    """해당 테이블의 자동 산출물(베이스) 행."""
-    if sheet in ("meta", "a", "e", "s", "r"):
+def auto_rows(code, sheet):
+    if sheet in CONTENT_TIERS + ("meta",):
         return read_artifact(code, "data.json").get(sheet, [])
     if sheet == "annex":
         return read_artifact(code, "annex.json")
@@ -45,18 +44,33 @@ def auto_rows(code: str, sheet: str) -> list[dict]:
     return []
 
 
-def load_overrides(code: str) -> dict:
+def load_overrides(code):
     p = job_dir(code) / "overrides.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
-# ───────── capture: 라이브 ⊖ 베이스 ─────────
-def _diff_sheet(sheet: str, auto: list, live: list) -> dict:
+# ───────── splits 감지 ─────────
+def detect_splits(live: dict) -> dict:
+    """라이브 a/e/s/r 에서 항/호 자식 가진 조 → {조ID: level}."""
+    splits = {}
+    for t in CONTENT_TIERS:
+        for r in live.get(t, []):
+            m = _CHILD.match(str(r.get(f"id_{t}") or ""))
+            if m:
+                jo = m.group(1)
+                if m.group(3) or splits.get(jo) == "hangho":
+                    splits[jo] = "hangho"
+                else:
+                    splits.setdefault(jo, "hang")
+    return splits
+
+
+# ───────── 델타(키드/키리스 테이블) ─────────
+def _diff_sheet(sheet, auto, live):
     cols = SHEETS[sheet][1]
     key = KEY.get(sheet)
     if key:
         cmp_cols = [c for c in cols if c not in (key, "id")]
-        idc = [c for c in cols if c != "id"]
         a = {r.get(key): r for r in auto if r.get(key) is not None}
         l = {r.get(key): r for r in live if r.get(key) is not None}
         add = [l[k] for k in l if k not in a]
@@ -66,16 +80,8 @@ def _diff_sheet(sheet: str, auto: list, live: list) -> dict:
             ch = {c: l[k].get(c) for c in cmp_cols if _cmp(l[k].get(c)) != _cmp(a[k].get(c))}
             if ch:
                 modify[str(k)] = ch
-        # 키 없는 행(장/절 제목 등, id=NULL) — 전체 행 식별로 add/remove
-        a_null = {_ident(r, idc): r for r in auto if r.get(key) is None}
-        l_null = {_ident(r, idc): r for r in live if r.get(key) is None}
-        add += [{c: l_null[i].get(c) for c in idc} for i in l_null if i not in a_null]
-        out = {"add": add, "remove": remove, "modify": modify}
-        rrows = [{c: a_null[i].get(c) for c in idc} for i in a_null if i not in l_null]
-        if rrows:
-            out["remove_rows"] = rrows
-        return out
-    idc = [c for c in cols if c != "id"]          # 자동 id 는 식별·저장에서 제외
+        return {"add": add, "remove": remove, "modify": modify}
+    idc = [c for c in cols if c != "id"]
     aset = {_ident(r, idc) for r in auto}
     lset = {_ident(r, idc) for r in live}
     pick = lambda r: {c: r.get(c) for c in idc}
@@ -83,71 +89,116 @@ def _diff_sheet(sheet: str, auto: list, live: list) -> dict:
             "remove": [pick(r) for r in auto if _ident(r, idc) not in lset]}
 
 
-def _empty(ov: dict) -> bool:
+def _empty(ov):
     return not any(ov.get(k) for k in ("add", "remove", "modify"))
 
 
-def capture(code: str, target: str = "dev", log=print) -> dict:
-    from exporter.db_export import read_law
-    live = read_law(code, target)
-    out = {}
-    for sheet in SHEETS:
-        ov = _diff_sheet(sheet, auto_rows(code, sheet), live.get(sheet, []))
-        if not _empty(ov):
-            out[sheet] = ov
-    write_artifact(code, "overrides.json", out)
-    summary = ", ".join(
-        f"{s}(+{len(o.get('add', []))}/-{len(o.get('remove', []))}/~{len(o.get('modify', {}))})"
-        for s, o in out.items()) or "변경 없음"
-    log(f"[capture] overrides.json — {summary}")
-    return out
-
-
-# ───────── apply: 베이스 + 델타 ─────────
-def apply_overrides(sheet: str, auto: list, sheet_ov: dict | None,
-                    valid_nodes: set | None = None, log=print) -> list[dict]:
+def apply_delta(sheet, auto, ov, valid_nodes=None, log=print):
+    """키드/키리스 테이블 델타 적용(annex/ref/rdb/penalty*/meta)."""
     cols = SHEETS[sheet][1]
     key = KEY.get(sheet)
-    if not sheet_ov:
+    if not ov:
         rows = [dict(r) for r in auto]
     elif key:
         idc = [c for c in cols if c != "id"]
         by = {r.get(key): dict(r) for r in auto if r.get(key) is not None}
-        null_rows = [dict(r) for r in auto if r.get(key) is None]
-        for k in sheet_ov.get("remove", []):
+        nulls = [dict(r) for r in auto if r.get(key) is None]
+        for k in ov.get("remove", []):
             by.pop(k, None)
-        rem_n = {_ident(r, idc) for r in sheet_ov.get("remove_rows", [])}
-        if rem_n:
-            null_rows = [r for r in null_rows if _ident(r, idc) not in rem_n]
-        skip = 0
-        for k, ch in sheet_ov.get("modify", {}).items():
+        for k, ch in ov.get("modify", {}).items():
             if k in by:
                 by[k].update(ch)
-            else:
-                skip += 1
-        for r in sheet_ov.get("add", []):
-            if r.get(key) is not None:
-                by[r.get(key)] = dict(r)
-            else:
-                null_rows.append(dict(r))         # 장/절 제목 등 키없는 행
-        if skip:
-            log(f"[overrides:{sheet}] ⚠ modify 대상 {skip}건 부재(갱신 소멸) 스킵")
-        rows = list(by.values()) + null_rows
+        for r in ov.get("add", []):
+            (by.__setitem__(r.get(key), dict(r)) if r.get(key) is not None else nulls.append(dict(r)))
+        rows = list(by.values()) + nulls
     else:
         idc = [c for c in cols if c != "id"]
-        rem = {_ident(r, idc) for r in sheet_ov.get("remove", [])}
-        rows = [dict(r) for r in auto if _ident(r, idc) not in rem]
-        rows += [dict(r) for r in sheet_ov.get("add", [])]
-
-    if sheet == "rdb" and valid_nodes is not None:        # rdb 엔드포인트 검증
+        rem = {_ident(r, idc) for r in ov.get("remove", [])}
+        rows = [dict(r) for r in auto if _ident(r, idc) not in rem] + \
+               [dict(r) for r in ov.get("add", [])]
+    if sheet == "rdb" and valid_nodes is not None:
         kept = [r for r in rows if r["id_start"] in valid_nodes and r["id_end"] in valid_nodes]
         if len(kept) != len(rows):
-            log(f"[overrides:rdb] ⚠ 노드 부재 엣지 {len(rows) - len(kept)}건 스킵(갱신 충돌)")
+            log(f"[overrides:rdb] ⚠ 노드부재 엣지 {len(rows)-len(kept)}건 스킵(갱신 충돌)")
         rows = kept
-    if sheet in AUTO_ID_SHEETS:                           # id 비워서 loader가 1..N 재부여
+    if sheet in AUTO_ID_SHEETS:
         for r in rows:
             r["id"] = None
     return rows
+
+
+# ───────── content 단(a/e/s/r): splits 재분리 + 내용 하드코딩 ─────────
+def apply_content_tier(tier, base_rows, splits, content_ov, log=print):
+    from lawparse.article_split import split_article
+    rows, nsplit = [], 0
+    for r in base_rows:
+        rid = r.get(f"id_{tier}")
+        if rid in splits and r.get(f"content_{tier}"):
+            stem, children = split_article(rid, r[f"content_{tier}"], splits[rid])
+            pr = dict(r); pr[f"content_{tier}"] = stem
+            rows.append(pr)
+            for cid, ctext in children:
+                cr = {"seq": None, f"id_{tier}": cid, f"content_{tier}": ctext,
+                      f"content_{tier}_sched": None, "sched_date": None}
+                if tier == "a":
+                    cr["id_aa"] = r.get("id_aa") or rid
+                    cr["title_a"] = r.get("title_a")
+                rows.append(cr)
+            nsplit += 1
+        else:
+            rows.append(dict(r))
+    for nid, ch in (content_ov.get(tier, {}) or {}).items():     # 명시적 하드코딩
+        for row in rows:
+            if row.get(f"id_{tier}") == nid:
+                row.update(ch)
+    for i, row in enumerate(rows, 1):                            # 재seq
+        row["seq"] = i
+    if nsplit:
+        log(f"[overrides:{tier}] 재분리 {nsplit}조")
+    return rows
+
+
+# ───────── capture / 적재 데이터 구성 ─────────
+def capture(code, target="dev", log=print):
+    from exporter.db_export import read_law
+    live = read_law(code, target)
+    out = {}
+    splits = detect_splits(live)
+    if splits:
+        out["splits"] = splits
+    for sheet in LINK_SHEETS:                                    # 연결·매핑 델타
+        ov = _diff_sheet(sheet, auto_rows(code, sheet), live.get(sheet, []))
+        if not _empty(ov):
+            out[sheet] = ov
+    # content(a/e/s/r 내용 하드코딩)는 자동캡처 안 함(포맷/버전 노이즈 배제) — 명시적 추가 전용
+    out.setdefault("content", {})
+    write_artifact(code, "overrides.json", out)
+    summ = f"splits {len(splits)}조, " + ", ".join(
+        f"{s}(+{len(out[s].get('add',[]))}/-{len(out[s].get('remove',[]))}/~{len(out[s].get('modify',{}))})"
+        for s in LINK_SHEETS if s in out)
+    log(f"[capture] overrides.json(typed) — {summ}")
+    return out
+
+
+def build_load_data(code, sheets, log=print):
+    """선택 sheet들의 적재 행 구성: a/e/s/r=splits재분리, 나머지=델타. valid_nodes로 rdb검증."""
+    ov = load_overrides(code)
+    splits = ov.get("splits", {})
+    content = ov.get("content", {})
+    # 최종 a/e/s/r (재분리 반영) — valid_nodes 산정 + 적재용
+    tiers = {t: apply_content_tier(t, auto_rows(code, t), splits, content, log)
+             for t in CONTENT_TIERS}
+    valid = {r[f"id_{t}"] for t in CONTENT_TIERS for r in tiers[t] if r.get(f"id_{t}")}
+    out = {}
+    for sheet in sheets:
+        if sheet in CONTENT_TIERS:
+            out[sheet] = tiers[sheet]
+        elif sheet == "meta":
+            out[sheet] = apply_delta(sheet, auto_rows(code, sheet), ov.get(sheet), log=log)
+        else:
+            out[sheet] = apply_delta(sheet, auto_rows(code, sheet), ov.get(sheet),
+                                     valid_nodes=valid, log=log)
+    return out
 
 
 if __name__ == "__main__":
