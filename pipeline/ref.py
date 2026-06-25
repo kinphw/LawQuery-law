@@ -13,6 +13,7 @@ from pipeline import load_job, read_artifact, write_artifact
 
 UP = {"a": "A", "e": "E", "s": "S", "r": "R"}
 _BRACKET = re.compile(r"「([^」]+)」\s*제(\d+)조(?:의(\d+))?")
+_SELF = re.compile(r"제(\d+)조(?:의(\d+))?")           # bare 제N조 (자기 단 자기참조)
 # 표준 단별 별칭(가족 내부) — refers(상위 지칭)에 없는 영→e·세칙→r 까지 잡아 db_e/db_r 누락 방지
 STD_ALIAS = {"a": ["법"], "e": ["영", "시행령"], "s": ["규정", "감독규정"], "r": ["세칙", "시행세칙"]}
 
@@ -37,6 +38,7 @@ def build_ref(code: str) -> list[dict]:
     # 괄호 없는 별칭(법·규정·금융위설치법 …)별 정규식
     bare = [(a, fam[a]) for a in fam if a[:1] != "「"]
     bare_re = {a: re.compile(rf"(?<![가-힣]){re.escape(a)}\s*제(\d+)조(?:의(\d+))?") for a, _ in bare}
+    bare_words = {a.strip("「」") for a in fam}        # 자기참조 판별: 이 단어 뒤 제N조는 별칭참조(이미 처리)
 
     rows, seen = [], set()
     n_ext = n_int = 0
@@ -69,6 +71,16 @@ def build_ref(code: str) -> list[dict]:
                         seen.add((oid, f"db_{pt}", tgt))
                         rows.append({"id": None, "id_origin": oid, "ref_type": f"db_{pt}",
                                      "ref_target": tgt, "ref_content": None}); n_int += 1
+            # 3) bare 제N조(별칭/「」 앞에 없음) → 자기 단 자기참조
+            for m in _SELF.finditer(body):
+                pre = body[:m.start()].rstrip()
+                if pre.endswith("」") or any(pre.endswith(w) for w in bare_words):
+                    continue                                 # 별칭/외부법 뒤 = 이미 처리
+                tgt = f"{UP[tier]}{int(m.group(1))}" + (f"_{int(m.group(2))}" if m.group(2) else "")
+                if tgt in nodes[tier] and tgt != oid and (oid, f"db_{tier}", tgt) not in seen:
+                    seen.add((oid, f"db_{tier}", tgt))
+                    rows.append({"id": None, "id_origin": oid, "ref_type": f"db_{tier}",
+                                 "ref_target": tgt, "ref_content": None}); n_int += 1
     write_artifact(code, "ref.json", rows)
     print(f"저장: jobs/{code}/ref.json  참조 {len(rows)} (외부법 text {n_ext}, 내부 db_* {n_int})")
     return rows
