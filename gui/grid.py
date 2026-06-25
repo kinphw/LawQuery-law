@@ -96,7 +96,8 @@ class CellTextEditor(tk.Toplevel):
 
 
 class TableTab(ttk.Frame):
-    def __init__(self, master, sheet, columns, rows, editor, on_status=None, on_reload=None):
+    def __init__(self, master, sheet, columns, rows, editor, on_status=None, on_reload=None,
+                 on_capture=None):
         super().__init__(master)
         self.sheet = sheet
         self.columns = columns
@@ -104,6 +105,7 @@ class TableTab(ttk.Frame):
         self.editor = editor
         self.on_status = on_status or (lambda m: None)
         self.on_reload = on_reload
+        self.on_capture = on_capture      # 분리 직후 오버라이드 자동 박제
 
         bar = ttk.Frame(self)
         bar.pack(fill="x", pady=3)
@@ -282,9 +284,11 @@ class TableTab(ttk.Frame):
             messagebox.showinfo("분리", res.get("msg", "분리할 항/호가 없습니다."))
             return
         self.on_status(f"[{self.sheet}] {nid} 분리: 자식 {res['children']}, rdb 재연결 {res['repointed']}")
+        cap = self.on_capture() if self.on_capture else None    # 분리 직후 오버라이드 자동 박제
         messagebox.showinfo("분리 완료",
                             f"자식 {res['children']}개 생성, rdb {res['repointed']}건 정밀 재연결.\n"
-                            "(필요 시 rdb 탭에서 수동 보정 → '오버라이드 저장')")
+                            + ("오버라이드 자동 저장됨(파이프라인 재실행에도 생존).\n" if cap else "")
+                            + "(rdb 수동 보정 시 다시 '오버라이드 저장')")
         if self.on_reload:
             self.on_reload()
 

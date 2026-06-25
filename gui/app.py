@@ -102,6 +102,19 @@ class App(tk.Tk):
         except Exception as ex:
             messagebox.showerror("오버라이드 저장 실패", str(ex))
 
+    def _auto_capture_after_split(self) -> bool:
+        """분리 직후 overrides.json 자동 박제(다이얼로그 없이 상태표시만). 성공 여부 반환."""
+        if not self.code:
+            return False
+        try:
+            from pipeline.overrides import capture
+            ov = capture(self.code, self.target.get(), log=lambda m: None)
+            self.set_status(f"분리 자동 박제 → jobs/{self.code}/overrides.json (분리 {len(ov.get('splits', {}))}조)")
+            return True
+        except Exception as ex:
+            self.set_status(f"⚠ 자동 오버라이드 저장 실패: {ex} — '오버라이드 저장' 수동 필요")
+            return False
+
     def open_registry(self):
         """ldb_auth.law_registry(법령 카탈로그) 관리 창. per-law 편집과 분리된 관리자 영역."""
         from gui.registry_window import RegistryWindow
@@ -183,7 +196,8 @@ class App(tk.Tk):
         for sheet in LOAD_ORDER:
             cols = SHEETS[sheet][1]
             tab = TableTab(self.nb, sheet, cols, self.data[sheet], self.editor,
-                           on_status=self.set_status, on_reload=self.reload_live)
+                           on_status=self.set_status, on_reload=self.reload_live,
+                           on_capture=self._auto_capture_after_split)
             n = len(self.data[sheet])
             self.nb.add(tab, text=f"{sheet} ({n})" if n else sheet)
             self.tabs[sheet] = tab
