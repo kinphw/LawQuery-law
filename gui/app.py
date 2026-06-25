@@ -174,7 +174,7 @@ class App(tk.Tk):
         for sheet in LOAD_ORDER:
             cols = SHEETS[sheet][1]
             tab = TableTab(self.nb, sheet, cols, self.data[sheet], self.editor,
-                           on_status=self.set_status)
+                           on_status=self.set_status, on_reload=self.reload_live)
             n = len(self.data[sheet])
             self.nb.add(tab, text=f"{sheet} ({n})" if n else sheet)
             self.tabs[sheet] = tab
@@ -201,6 +201,11 @@ class App(tk.Tk):
         self._build_tabs(title)
         self.set_status(f"편집 중: ldb_{code} @ {self.target.get()} (변경 즉시 반영)")
         return True
+
+    def reload_live(self):
+        """분리 등 다중행 변경 후 전체 재로드(데이터·탭 갱신)."""
+        if self.code:
+            self._open_live(self.code, f"ldb_{self.code}")
 
     def load_db(self):
         db = self.db_var.get()

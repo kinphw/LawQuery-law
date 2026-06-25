@@ -96,19 +96,24 @@ class CellTextEditor(tk.Toplevel):
 
 
 class TableTab(ttk.Frame):
-    def __init__(self, master, sheet, columns, rows, editor, on_status=None):
+    def __init__(self, master, sheet, columns, rows, editor, on_status=None, on_reload=None):
         super().__init__(master)
         self.sheet = sheet
         self.columns = columns
         self.rows = rows          # data[sheet] 참조 (각 행에 __pk)
         self.editor = editor
         self.on_status = on_status or (lambda m: None)
+        self.on_reload = on_reload
 
         bar = ttk.Frame(self)
         bar.pack(fill="x", pady=3)
         ttk.Button(bar, text="＋ 추가", command=self.add).pack(side="left", padx=2)
         ttk.Button(bar, text="✎ 편집(행)", command=self.edit).pack(side="left", padx=2)
         ttk.Button(bar, text="🗑 삭제", command=self.delete).pack(side="left", padx=2)
+        if sheet in ("a", "e", "s", "r"):
+            ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+            ttk.Button(bar, text="↳ 항 분리", command=lambda: self.split("hang")).pack(side="left", padx=2)
+            ttk.Button(bar, text="↳ 항호 분리", command=lambda: self.split("hangho")).pack(side="left", padx=2)
         ttk.Label(bar, text="셀 더블클릭=즉석 수정 · 변경 즉시 반영").pack(side="left", padx=10)
         self.count_lbl = ttk.Label(bar, text="")
         self.count_lbl.pack(side="right", padx=6)
@@ -244,6 +249,44 @@ class TableTab(ttk.Frame):
         self.rows[idx] = row
         self._update_display(idx)
         self.on_status(f"[{self.sheet}] 1건 수정 (pk={pk})")
+
+    def split(self, level):
+        import re
+        idx = self._selected()
+        if idx is None:
+            messagebox.showinfo("분리", "분리할 조 행을 선택하세요.")
+            return
+        row = self.rows[idx]
+        idcol = f"id_{self.sheet}"
+        nid = row.get(idcol)
+        if not nid:
+            messagebox.showinfo("분리", "장/절 제목행은 분리할 수 없습니다.")
+            return
+        if re.search(r"_\d+h", str(nid)):
+            messagebox.showinfo("분리", f"{nid} 는 이미 항/호 노드입니다(조만 분리 가능).")
+            return
+        label = "항 단위" if level == "hang" else "항+호 단위"
+        if not messagebox.askyesno(
+            "항/호 분리",
+            f"[{nid}] 조를 {label}로 분리합니다.\n"
+            "· 부모 조 = 도입부만 남고\n· 항/호가 자식 노드로 생성되며\n"
+            "· 그 조가 상위인 rdb는 하위 인용 기준으로 자동 재연결됩니다.\n\n계속할까요?",
+        ):
+            return
+        try:
+            res = self.editor.split_article(self.sheet, row.get("__pk"), level)
+        except Exception as ex:
+            messagebox.showerror("분리 실패", str(ex))
+            return
+        if not res.get("children"):
+            messagebox.showinfo("분리", res.get("msg", "분리할 항/호가 없습니다."))
+            return
+        self.on_status(f"[{self.sheet}] {nid} 분리: 자식 {res['children']}, rdb 재연결 {res['repointed']}")
+        messagebox.showinfo("분리 완료",
+                            f"자식 {res['children']}개 생성, rdb {res['repointed']}건 정밀 재연결.\n"
+                            "(필요 시 rdb 탭에서 수동 보정 → '오버라이드 저장')")
+        if self.on_reload:
+            self.on_reload()
 
     def delete(self):
         idx = self._selected()

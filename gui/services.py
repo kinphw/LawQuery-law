@@ -58,3 +58,7 @@ class LiveEditor:
 
     def delete(self, sheet, pk):
         return record_db.delete_record(self.code, sheet, pk, self.target)
+
+    def split_article(self, sheet, pk, level):
+        """조 1개를 항/호 자식으로 분리 + rdb 자동재연결 (트랜잭션)."""
+        return record_db.split_article_op(self.code, sheet, pk, level, self.target)
