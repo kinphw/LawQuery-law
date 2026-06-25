@@ -86,7 +86,7 @@ def build_annex(code: str) -> list[dict]:
             kind, pfx = ("별지", "F") if b["form"] else ("별표", "AN")
             no = f"{kind}{b['no']}" + (f"의{b['ga']}" if b["ga"] else "")
             aid = f"{UP[tier]}_{pfx}{b['no']}" + (f"_{b['ga']}" if b["ga"] else "")
-            rows.append({"origin": tier, "id_annex": aid, "annex_no": no, "id_src": src_id,
+            rows.append({"origin": tier, "id_annex": aid, "annex_no": no, "id_src": src_id or "",
                          "annex_name": b["title"], "annex_url": _viewer_url(path, name, pub, no)})
             if not src_id:
                 nolink.append(aid)
