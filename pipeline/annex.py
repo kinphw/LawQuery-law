@@ -38,15 +38,17 @@ def _source_annexes(src: dict):
         items = u if isinstance(u, list) else ([u] if u else [])
     out = []
     for b in items:
-        if (b.get("별표구분") or "별표") != "별표":      # 서식 제외
+        gubun = (b.get("별표구분") or "별표")
+        if gubun not in ("별표", "별지"):                 # 별표 + 별지서식(둘 다 적재), 기타만 제외
             continue
         title = (b.get("별표제목") or "").strip()
-        if not title or title == "삭제":                  # 삭제 별표 제외
+        if not title:
             continue
         out.append({
             "no": int(b.get("별표번호") or 0),
             "ga": int(b.get("별표가지번호") or 0) or None,
             "title": title,
+            "form": gubun == "별지",                      # 별지서식 여부
         })
     return path, name, pub, out
 
@@ -56,8 +58,11 @@ def _viewer_url(path: str, name: str, pub, annex_no: str) -> str:
     return f"{BASE}/{path}/({inner})"
 
 
-def _src_from_body(tier: str, no: int, ga, data: dict):
-    pat = re.compile(rf"별\s*표\s*{no}" + (rf"\s*의\s*{ga}" if ga else r"(?!\s*의\s*\d)"))
+def _src_from_body(tier: str, no: int, ga, data: dict, form: bool = False):
+    if form:                                              # 별지 제N호[의M]서식
+        pat = re.compile(rf"별\s*지\s*제?\s*{no}\s*호" + (rf"\s*의\s*{ga}" if ga else ""))
+    else:                                                 # 별표 N[의M]
+        pat = re.compile(rf"별\s*표\s*{no}" + (rf"\s*의\s*{ga}" if ga else r"(?!\s*의\s*\d)"))
     for row in data[tier]:
         if pat.search(row.get(f"content_{tier}") or ""):
             return row[f"id_{tier}"]
@@ -71,15 +76,16 @@ def build_annex(code: str) -> list[dict]:
     for tier, src in job["sources"].items():
         path, name, pub, items = _source_annexes(src)
         for b in items:
-            m = _REL.search(b["title"])
+            m = None if b["form"] else _REL.search(b["title"])   # (제N조 관련)은 별표만
             if m:
                 src_id = f"{UP[tier]}{int(m.group(1))}" + (f"_{int(m.group(2))}" if m.group(2) else "")
                 if src_id not in {r[f"id_{tier}"] for r in data[tier]}:
-                    src_id = _src_from_body(tier, b["no"], b["ga"], data)
+                    src_id = _src_from_body(tier, b["no"], b["ga"], data, b["form"])
             else:
-                src_id = _src_from_body(tier, b["no"], b["ga"], data)
-            no = f"별표{b['no']}" + (f"의{b['ga']}" if b["ga"] else "")
-            aid = f"{UP[tier]}_AN{b['no']}" + (f"_{b['ga']}" if b["ga"] else "")
+                src_id = _src_from_body(tier, b["no"], b["ga"], data, b["form"])
+            kind, pfx = ("별지", "F") if b["form"] else ("별표", "AN")
+            no = f"{kind}{b['no']}" + (f"의{b['ga']}" if b["ga"] else "")
+            aid = f"{UP[tier]}_{pfx}{b['no']}" + (f"_{b['ga']}" if b["ga"] else "")
             rows.append({"origin": tier, "id_annex": aid, "annex_no": no, "id_src": src_id,
                          "annex_name": b["title"], "annex_url": _viewer_url(path, name, pub, no)})
             if not src_id:
