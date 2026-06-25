@@ -18,7 +18,7 @@ def check(code: str) -> bool:
     data = read_artifact(code, "data.json")
     ok = True
     for tier, src in job["sources"].items():
-        have = {r[f"id_{tier}"] for r in data[tier]}
+        have = {r[f"id_{tier}"] for r in data[tier] if r.get(f"id_{tier}")}  # 장/절 title행(id None) 제외
         if src["kind"] == "law":
             print(f"  {tier}(law): {len(have)}조 (구조화 API)")
             continue

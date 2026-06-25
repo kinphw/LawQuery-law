@@ -105,9 +105,15 @@ def get_law_text(law_id: str = None, mst: str = None, ef_yd: str = None) -> dict
     if not data:
         raise RuntimeError(f"법령 본문을 찾을 수 없습니다({params}).")
     info = data.get("기본정보") or {}
-    arts = [_parse_article(j)
-            for j in _arr((data.get("조문") or {}).get("조문단위"))
-            if j.get("조문여부") == "조문"]
+    arts = []
+    for j in _arr((data.get("조문") or {}).get("조문단위")):
+        yn = j.get("조문여부")
+        if yn == "조문":
+            arts.append(_parse_article(j))
+        elif yn == "전문":                                  # 편/장/절/관 제목(조 앞)
+            t = _flat(j.get("조문내용")).strip().split("\n")[0].strip()
+            if t:
+                arts.append({"전문": t, "조문번호": int(j.get("조문번호") or 0)})
     return {
         "법령명": info.get("법령명_한글") or "",
         "법령ID": info.get("법령ID") or law_id,

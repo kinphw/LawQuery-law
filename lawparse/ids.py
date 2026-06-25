@@ -17,12 +17,15 @@ def rows_for_tier(tier: str, articles: list[dict]) -> list[dict]:
     rows: list[dict] = []
     seq = 0
     for art in articles:
-        if art.get('type') == 'title':
-            if tier == 'a':  # 장/절 제목행은 db_a 만
-                seq += 1
+        if art.get('type') == 'title':           # 장/절 제목행(id 없음) — 전 단
+            seq += 1
+            if tier == 'a':
                 rows.append({'seq': seq, 'id_aa': None, 'id_a': None,
                              'title_a': art['title'], 'content_a': art['title'],
                              'content_a_sched': None, 'sched_date': None})
+            else:
+                rows.append({'seq': seq, f'id_{tier}': None, f'content_{tier}': art['title'],
+                             f'content_{tier}_sched': None, 'sched_date': None})
             continue
         sid = stem_id(tier, art['jo'], art.get('ga'))
         seq += 1

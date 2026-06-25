@@ -188,6 +188,19 @@ def build_load_data(code, sheets, log=print):
     # 최종 a/e/s/r (재분리 반영) — valid_nodes 산정 + 적재용
     tiers = {t: apply_content_tier(t, auto_rows(code, t), splits, content, log)
              for t in CONTENT_TIERS}
+    # 시행예정 부착(splits 후 노드에). 분리된 조 stem은 제외 → 변경된 항/호 노드만 받음.
+    sp = job_dir(code) / "sched.json"
+    if sp.exists():
+        sched = json.loads(sp.read_text(encoding="utf-8"))
+        ns = 0
+        for t in CONTENT_TIERS:
+            for row in tiers[t]:
+                nid = row.get(f"id_{t}")
+                if nid and nid in sched and nid not in splits:
+                    row[f"content_{t}_sched"], row["sched_date"] = sched[nid]
+                    ns += 1
+        if ns:
+            log(f"[sched] 시행예정 {ns}노드 부착")
     valid = {r[f"id_{t}"] for t in CONTENT_TIERS for r in tiers[t] if r.get(f"id_{t}")}
     out = {}
     for sheet in sheets:

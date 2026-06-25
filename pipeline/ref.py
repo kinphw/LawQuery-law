@@ -13,14 +13,19 @@ from pipeline import load_job, read_artifact, write_artifact
 
 UP = {"a": "A", "e": "E", "s": "S", "r": "R"}
 _BRACKET = re.compile(r"「([^」]+)」\s*제(\d+)조(?:의(\d+))?")
+# 표준 단별 별칭(가족 내부) — refers(상위 지칭)에 없는 영→e·세칙→r 까지 잡아 db_e/db_r 누락 방지
+STD_ALIAS = {"a": ["법"], "e": ["영", "시행령"], "s": ["규정", "감독규정"], "r": ["세칙", "시행세칙"]}
 
 
 def _family(job: dict) -> dict:
     fam = {}
-    for src in job["sources"].values():
+    for src in job["sources"].values():                  # ① job.json refers(명시적 별칭 → 상위단)
         p = src.get("parent")
         for a in (src.get("refers", []) if p else []):
             fam[a] = p
+    for tier in job["sources"]:                          # ② 표준 단별 별칭(존재하는 단만, 기존 우선)
+        for a in STD_ALIAS.get(tier, []):
+            fam.setdefault(a, tier)
     return fam
 
 
