@@ -10,6 +10,7 @@ import sys
 
 from pipeline import load_job, write_artifact
 from lawparse.ids import resolve_node
+from fetcher import law_api
 
 _JHH = r"제(\d+)조(?:의(\d+))?(?:제(\d+)항)?(?:제(\d+)호)?"   # 조[의M][제K항][제L호]
 _BRACKET = re.compile(r"「([^」]+)」\s*" + _JHH)
@@ -36,6 +37,28 @@ def _label(name: str, g) -> str:
             + (f"제{int(hang)}항" if hang else "") + (f"제{int(ho)}호" if ho else ""))
 
 
+def _fetch_external(name: str) -> dict:
+    """외부법명 → {(조번호,가지번호): 조본문}. 검색→현행 본문. 못 찾으면 {}."""
+    from pipeline.build import _join_law_article
+    try:
+        hits = law_api.search_law(name)
+    except Exception:
+        return {}
+    hit = next((h for h in hits if h.get("법령명") == name), hits[0] if hits else None)
+    if not hit or not hit.get("법령ID"):
+        return {}
+    try:
+        t = law_api.get_law_text(hit["법령ID"])
+    except Exception:
+        return {}
+    out = {}
+    for a in t["조문목록"]:
+        if "전문" in a:
+            continue
+        out[(a["조문번호"], a["조문가지번호"])] = _join_law_article(a)
+    return out
+
+
 def build_ref(code: str) -> list[dict]:
     from pipeline.overrides import split_tiers
     job = load_job(code)
@@ -47,6 +70,12 @@ def build_ref(code: str) -> list[dict]:
     bare_words = {a.strip("「」") for a in fam}          # 별칭 뒤 제N조는 별칭참조(자기참조 아님)
 
     rows, seen = [], set()
+    ext_cache = {}                                   # 외부법 본문 캐시(법명당 1회 fetch)
+
+    def _ext_body(name, jo, ga):
+        if name not in ext_cache:
+            ext_cache[name] = _fetch_external(name)
+        return ext_cache[name].get((jo, ga))
 
     def _ints(g):
         return tuple(int(x) if x else None for x in g)
@@ -59,14 +88,17 @@ def build_ref(code: str) -> list[dict]:
             rows.append({"id": None, "id_origin": oid, "ref_type": f"db_{pt}",
                          "ref_target": tgt, "ref_content": None})
 
-    def emit_text(oid, name, g):                 # 외부법 → 라벨 + law.go.kr 조 뷰어 링크
+    def emit_text(oid, name, g):                 # 외부법 → 라벨+본문(임베드) + law.go.kr 링크
         label = _label(name, g)
         jo, ga, _, _ = _ints(g)
+        if (oid, "text", label) in seen:
+            return
+        seen.add((oid, "text", label))
+        body = _ext_body(name, jo, ga)
+        content = label + ("\n" + body if body else "")
         url = f"https://www.law.go.kr/법령/{name}/제{jo}조" + (f"의{ga}" if ga else "")
-        if (oid, "text", label) not in seen:
-            seen.add((oid, "text", label))
-            rows.append({"id": None, "id_origin": oid, "ref_type": "text",
-                         "ref_target": url, "ref_content": label})
+        rows.append({"id": None, "id_origin": oid, "ref_type": "text",
+                     "ref_target": url, "ref_content": content})
 
     for tier in ("a", "e", "s", "r"):
         for row in tiers[tier]:
