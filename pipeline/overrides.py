@@ -56,8 +56,9 @@ def _diff_sheet(sheet: str, auto: list, live: list) -> dict:
     key = KEY.get(sheet)
     if key:
         cmp_cols = [c for c in cols if c not in (key, "id")]
-        a = {r.get(key): r for r in auto}
-        l = {r.get(key): r for r in live}
+        idc = [c for c in cols if c != "id"]
+        a = {r.get(key): r for r in auto if r.get(key) is not None}
+        l = {r.get(key): r for r in live if r.get(key) is not None}
         add = [l[k] for k in l if k not in a]
         remove = [k for k in a if k not in l]
         modify = {}
@@ -65,7 +66,15 @@ def _diff_sheet(sheet: str, auto: list, live: list) -> dict:
             ch = {c: l[k].get(c) for c in cmp_cols if _cmp(l[k].get(c)) != _cmp(a[k].get(c))}
             if ch:
                 modify[str(k)] = ch
-        return {"add": add, "remove": remove, "modify": modify}
+        # 키 없는 행(장/절 제목 등, id=NULL) — 전체 행 식별로 add/remove
+        a_null = {_ident(r, idc): r for r in auto if r.get(key) is None}
+        l_null = {_ident(r, idc): r for r in live if r.get(key) is None}
+        add += [{c: l_null[i].get(c) for c in idc} for i in l_null if i not in a_null]
+        out = {"add": add, "remove": remove, "modify": modify}
+        rrows = [{c: a_null[i].get(c) for c in idc} for i in a_null if i not in l_null]
+        if rrows:
+            out["remove_rows"] = rrows
+        return out
     idc = [c for c in cols if c != "id"]          # 자동 id 는 식별·저장에서 제외
     aset = {_ident(r, idc) for r in auto}
     lset = {_ident(r, idc) for r in live}
@@ -102,9 +111,14 @@ def apply_overrides(sheet: str, auto: list, sheet_ov: dict | None,
     if not sheet_ov:
         rows = [dict(r) for r in auto]
     elif key:
-        by = {r.get(key): dict(r) for r in auto}
+        idc = [c for c in cols if c != "id"]
+        by = {r.get(key): dict(r) for r in auto if r.get(key) is not None}
+        null_rows = [dict(r) for r in auto if r.get(key) is None]
         for k in sheet_ov.get("remove", []):
             by.pop(k, None)
+        rem_n = {_ident(r, idc) for r in sheet_ov.get("remove_rows", [])}
+        if rem_n:
+            null_rows = [r for r in null_rows if _ident(r, idc) not in rem_n]
         skip = 0
         for k, ch in sheet_ov.get("modify", {}).items():
             if k in by:
@@ -112,10 +126,13 @@ def apply_overrides(sheet: str, auto: list, sheet_ov: dict | None,
             else:
                 skip += 1
         for r in sheet_ov.get("add", []):
-            by[r.get(key)] = dict(r)
+            if r.get(key) is not None:
+                by[r.get(key)] = dict(r)
+            else:
+                null_rows.append(dict(r))         # 장/절 제목 등 키없는 행
         if skip:
             log(f"[overrides:{sheet}] ⚠ modify 대상 {skip}건 부재(갱신 소멸) 스킵")
-        rows = list(by.values())
+        rows = list(by.values()) + null_rows
     else:
         idc = [c for c in cols if c != "id"]
         rem = {_ident(r, idc) for r in sheet_ov.get("remove", [])}

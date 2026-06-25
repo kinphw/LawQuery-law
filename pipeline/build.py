@@ -27,8 +27,11 @@ def _join_law_article(a: dict) -> str:
     return "\n".join(p for p in parts if p)
 
 
-def _law_articles(law_id: str):
-    t = law_api.get_law_text(law_id)
+def _law_articles(src: dict):
+    if src.get("mst") and src.get("ef_yd"):           # 연혁(구버전) MST+efYd
+        t = law_api.get_law_text(mst=src["mst"], ef_yd=src["ef_yd"])
+    else:
+        t = law_api.get_law_text(src["id"])           # 현행 ID
     arts = []
     for a in t["조문목록"]:
         jo, ga = a["조문번호"], a["조문가지번호"]
@@ -55,13 +58,14 @@ def build(code: str) -> dict:
     meta = []
     for tier, src in job["sources"].items():
         if src["kind"] == "law":
-            name, eff, arts = _law_articles(src["id"])
+            name, eff, arts = _law_articles(src)
         else:
             name, eff, arts = _admin_articles(src["id"])
         data[tier] = rows_for_tier(tier, arts)
         meta.append({"origin": tier, "full_name": f"{name}\n[시행 {eff}]",
                      "short_name": src.get("short", tier)})
-        print(f"  {tier} ({src['kind']} {src['id']}): {name} — {len(arts)}조")
+        ref = src.get("id") or f"MST{src.get('mst')}@{src.get('ef_yd')}"
+        print(f"  {tier} ({src['kind']} {ref}): {name} — {len(arts)}조")
     data["meta"] = meta
     write_artifact(code, "data.json", data)
     print(f"저장: jobs/{code}/data.json  (a:{len(data['a'])} e:{len(data['e'])} "

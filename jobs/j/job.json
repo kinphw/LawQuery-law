@@ -1,0 +1,14 @@
+{
+  "code": "j",
+  "title": "전자금융거래법 (ldb_j 버전매칭 — a현행 / e·s·r 연혁)",
+  "sources": {
+    "a": { "kind": "law",    "id": "010199",                            "short": "법률" },
+    "e": { "kind": "law",    "mst": "266805", "ef_yd": "20241227",      "short": "시행령",   "parent": "a",
+           "refers": ["「전자금융거래법」", "법"] },
+    "s": { "kind": "admrul", "id": "2100000254312",                     "short": "감독규정", "parent": "a",
+           "refers": ["「전자금융거래법」", "전자금융거래법", "법"] },
+    "r": { "kind": "admrul", "id": "2200000106271",                     "short": "시행세칙", "parent": "s",
+           "refers": ["「전자금융감독규정」", "규정"] }
+  },
+  "umbrella": { "e": "A1", "s": "A21", "r": "S1" }
+}

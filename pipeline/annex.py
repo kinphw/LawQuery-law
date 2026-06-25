@@ -24,7 +24,10 @@ _REL = re.compile(r"제(\d+)조(?:의(\d+))?[^)]*관련")   # (제N조[의M] …
 def _source_annexes(src: dict):
     """source → (별표서식뷰어경로, 법령명, 발령번호|None, [별표…])."""
     if src["kind"] == "law":
-        t = law_api.get_law_text(src["id"])
+        if src.get("mst") and src.get("ef_yd"):       # 연혁(구버전)
+            t = law_api.get_law_text(mst=src["mst"], ef_yd=src["ef_yd"])
+        else:
+            t = law_api.get_law_text(src["id"])
         name, pub, path = t["법령명"], None, "법령별표서식"
         items = t["별표목록"]
     else:

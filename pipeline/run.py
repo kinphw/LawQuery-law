@@ -52,9 +52,9 @@ def _load_data_for(code: str, stages: list) -> dict:
     """선택 단계의 산출물 → 적재용 data dict(해당 시트만). **전 테이블 자동+오버라이드**."""
     from pipeline.overrides import load_overrides, apply_overrides, auto_rows
     ov = load_overrides(code)
-    data = read_artifact(code, "data.json")
-    valid = {row[f"id_{t}"] for t in ("a", "e", "s", "r")
-             for row in data[t] if row.get(f"id_{t}")}
+    # valid_nodes = 오버라이드 반영된 최종 a/e/s/r 노드(수동 분리노드 포함) → rdb 엔드포인트 검증 기준
+    valid = {r[f"id_{t}"] for t in ("a", "e", "s", "r")
+             for r in apply_overrides(t, auto_rows(code, t), ov.get(t)) if r.get(f"id_{t}")}
     out: dict = {}
     for stage in stages:
         for sheet in STAGE_SHEETS[stage]:

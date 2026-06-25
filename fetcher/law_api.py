@@ -93,11 +93,16 @@ def _parse_article(raw: dict) -> dict:
     }
 
 
-def get_law_text(law_id: str) -> dict:
-    raw = _get("lawService.do", {"target": "eflaw", "ID": law_id})
+def get_law_text(law_id: str = None, mst: str = None, ef_yd: str = None) -> dict:
+    """ID=현행. MST+efYd=특정 시행일 연혁 버전(구버전 조회)."""
+    if mst and ef_yd:
+        params = {"target": "eflaw", "MST": str(mst), "efYd": str(ef_yd)}
+    else:
+        params = {"target": "eflaw", "ID": law_id}
+    raw = _get("lawService.do", params)
     data = raw.get("법령")
     if not data:
-        raise RuntimeError(f"법령ID {law_id} 본문을 찾을 수 없습니다.")
+        raise RuntimeError(f"법령 본문을 찾을 수 없습니다({params}).")
     info = data.get("기본정보") or {}
     arts = [_parse_article(j)
             for j in _arr((data.get("조문") or {}).get("조문단위"))
