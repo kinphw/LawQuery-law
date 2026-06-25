@@ -80,6 +80,7 @@ def _parse_article(raw: dict) -> dict:
         "조문번호": int(raw.get("조문번호")),
         "조문가지번호": int(raw["조문가지번호"]) if raw.get("조문가지번호") else None,
         "조제목": raw.get("조문제목") or "",
+        "조문시행일자": str(raw.get("조문시행일자") or ""),   # 시행예정 식별용(미래일=예정)
         "조문내용": _flat(raw.get("조문내용")),
         "항목록": [
             {"항번호": h.get("항번호") or "", "항내용": _flat(h.get("항내용")),
@@ -116,6 +117,16 @@ def get_law_text(law_id: str = None, mst: str = None, ef_yd: str = None) -> dict
         "별표목록": _arr((data.get("별표") or {}).get("별표단위")),
         "_raw": data,
     }
+
+
+# ───────── 시행예정 버전 탐색 ─────────
+def find_sched_version(law_name: str):
+    """법령명으로 시행예정(미시행 개정) 버전 → (MST, 시행일자) 또는 None. nw=2=시행예정."""
+    data = _get("lawSearch.do", {"target": "eflaw", "query": law_name, "nw": "2", "display": "50"})
+    for r in _arr((data.get("LawSearch") or {}).get("law")):
+        if str(r.get("법령명한글")) == law_name and str(r.get("현행연혁코드")) == "시행예정":
+            return str(r.get("법령일련번호")), str(r.get("시행일자"))
+    return None
 
 
 # ───────── 체계도(상하위법) ─────────

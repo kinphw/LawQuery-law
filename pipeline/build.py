@@ -8,7 +8,7 @@ import sys
 
 from fetcher import law_api
 from lawparse import splitter
-from lawparse.ids import rows_for_tier
+from lawparse.ids import rows_for_tier, stem_id
 from common.schema_map import SHEETS
 from pipeline import load_job, write_artifact
 
@@ -40,6 +40,30 @@ def _law_articles(src: dict):
     return t.get("법령명") or "", t.get("시행일자") or "", arts
 
 
+def _merge_sched(tier: str, name: str, cur_eff: str, cur_arts: list):
+    """시행예정(미시행 개정) 반영: 현행 arts + 신설조 병합(조번호순) + sched_map{id:(미래본문,시행일)}.
+    시행예정 버전에서 조문시행일자 > 현행시행일 인 조 = 개정/신설된 조."""
+    sv = law_api.find_sched_version(name)
+    if not sv:
+        return cur_arts, {}
+    st = law_api.get_law_text(mst=sv[0], ef_yd=sv[1])
+    sef = sv[1]                                          # 시행예정 시행일
+    cur_by = {(a["jo"], a["ga"]): a["stem"] for a in cur_arts}
+    sched_map, extra = {}, []
+    for a in st["조문목록"]:
+        key = (a["조문번호"], a["조문가지번호"])
+        content = _join_law_article(a)
+        if cur_by.get(key) == content:
+            continue                                     # 변경 없음(현행과 동일)
+        sched_map[stem_id(tier, *key)] = (content, str(a["조문시행일자"]) or sef)
+        if key not in cur_by:                            # 신설 조 → 본문 행도 생성(미래본문)
+            title = f"제{key[0]}조" + (f"의{key[1]}" if key[1] else "") + \
+                    (f"({a['조제목']})" if a["조제목"] else "")
+            extra.append({"jo": key[0], "ga": key[1], "title": title, "stem": content, "items": []})
+    merged = sorted(cur_arts + extra, key=lambda x: (x["jo"], x["ga"] or 0))
+    return merged, sched_map
+
+
 def _admin_articles(serial: str):
     t = law_api.get_admin_rule_text(serial)
     body = splitter.format_admin_body(t["조문내용"])   # 항/호/목 한 줄 붙음 → 개행 삽입
@@ -57,15 +81,26 @@ def build(code: str) -> dict:
     data = {sh: [] for sh in SHEETS}
     meta = []
     for tier, src in job["sources"].items():
+        sched_map = {}
         if src["kind"] == "law":
             name, eff, arts = _law_articles(src)
+            if src.get("sched"):
+                arts, sched_map = _merge_sched(tier, name, eff, arts)
         else:
             name, eff, arts = _admin_articles(src["id"])
         data[tier] = rows_for_tier(tier, arts)
+        if sched_map:                                    # 변경/신설 조에 시행예정 본문·시행일 부착
+            ns = 0
+            for row in data[tier]:
+                jid = row.get(f"id_{tier}")
+                if jid in sched_map:
+                    row[f"content_{tier}_sched"], row["sched_date"] = sched_map[jid]
+                    ns += 1
         meta.append({"origin": tier, "full_name": f"{name}\n[시행 {eff}]",
                      "short_name": src.get("short", tier)})
         ref = src.get("id") or f"MST{src.get('mst')}@{src.get('ef_yd')}"
-        print(f"  {tier} ({src['kind']} {ref}): {name} — {len(arts)}조")
+        sx = f" (+시행예정 {len(sched_map)}조)" if sched_map else ""
+        print(f"  {tier} ({src['kind']} {ref}): {name} — {len(arts)}조{sx}")
     data["meta"] = meta
     write_artifact(code, "data.json", data)
     print(f"저장: jobs/{code}/data.json  (a:{len(data['a'])} e:{len(data['e'])} "
