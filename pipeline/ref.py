@@ -38,25 +38,29 @@ def _label(name: str, g) -> str:
 
 
 def _fetch_external(name: str) -> dict:
-    """외부법명 → {(조번호,가지번호): 조본문}. 검색→현행 본문. 못 찾으면 {}."""
+    """외부법명 → {(조번호,가지번호): 조본문}. 법령(eflaw)→없으면 행정규칙(admrul). 못 찾으면 {}."""
     from pipeline.build import _join_law_article
-    try:
+    try:                                                  # ① 법령(eflaw)
         hits = law_api.search_law(name)
+        hit = next((h for h in hits if h.get("법령명") == name), hits[0] if hits else None)
+        if hit and hit.get("법령ID"):
+            t = law_api.get_law_text(hit["법령ID"])
+            return {(a["조문번호"], a["조문가지번호"]): _join_law_article(a)
+                    for a in t["조문목록"] if "전문" not in a}
     except Exception:
-        return {}
-    hit = next((h for h in hits if h.get("법령명") == name), hits[0] if hits else None)
-    if not hit or not hit.get("법령ID"):
-        return {}
-    try:
-        t = law_api.get_law_text(hit["법령ID"])
+        pass
+    try:                                                  # ② 행정규칙(규정·세칙 등 — 문자열→splitter)
+        from lawparse import splitter
+        hits = law_api.search_admin_rule(name)
+        hit = next((h for h in hits if h.get("행정규칙명") == name), hits[0] if hits else None)
+        if hit and hit.get("행정규칙일련번호"):
+            body = splitter.format_admin_body(
+                law_api.get_admin_rule_text(hit["행정규칙일련번호"])["조문내용"])
+            return {(u["jo"], u["ga"]): u["stem"] + ("\n" + "\n".join(u["items"]) if u["items"] else "")
+                    for u in splitter.split_body(body) if u["type"] == "article"}
     except Exception:
-        return {}
-    out = {}
-    for a in t["조문목록"]:
-        if "전문" in a:
-            continue
-        out[(a["조문번호"], a["조문가지번호"])] = _join_law_article(a)
-    return out
+        pass
+    return {}
 
 
 def build_ref(code: str) -> list[dict]:

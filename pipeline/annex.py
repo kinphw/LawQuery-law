@@ -75,6 +75,7 @@ def build_annex(code: str) -> list[dict]:
     rows, nolink = [], []
     for tier, src in job["sources"].items():
         path, name, pub, items = _source_annexes(src)
+        parent_src = {}                                   # (form,no) → 부모 별표 연결조(가지 상속용)
         for b in items:
             m = None if b["form"] else _REL.search(b["title"])   # (제N조 관련)은 별표만
             if m:
@@ -83,6 +84,10 @@ def build_annex(code: str) -> list[dict]:
                     src_id = _src_from_body(tier, b["no"], b["ga"], data, b["form"])
             else:
                 src_id = _src_from_body(tier, b["no"], b["ga"], data, b["form"])
+            if not b["ga"]:
+                parent_src[(b["form"], b["no"])] = src_id
+            elif not src_id:                              # 가지 별표 본문 미참조 → 부모 별표의 조 상속
+                src_id = parent_src.get((b["form"], b["no"]))
             kind, pfx = ("별지", "F") if b["form"] else ("별표", "AN")
             no = f"{kind}{b['no']}" + (f"의{b['ga']}" if b["ga"] else "")
             aid = f"{UP[tier]}_{pfx}{b['no']}" + (f"_{b['ga']}" if b["ga"] else "")
