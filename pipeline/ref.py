@@ -59,11 +59,14 @@ def build_ref(code: str) -> list[dict]:
             rows.append({"id": None, "id_origin": oid, "ref_type": f"db_{pt}",
                          "ref_target": tgt, "ref_content": None})
 
-    def emit_text(oid, label):
+    def emit_text(oid, name, g):                 # 외부법 → 라벨 + law.go.kr 조 뷰어 링크
+        label = _label(name, g)
+        jo, ga, _, _ = _ints(g)
+        url = f"https://www.law.go.kr/법령/{name}/제{jo}조" + (f"의{ga}" if ga else "")
         if (oid, "text", label) not in seen:
             seen.add((oid, "text", label))
             rows.append({"id": None, "id_origin": oid, "ref_type": "text",
-                         "ref_target": None, "ref_content": label})
+                         "ref_target": url, "ref_content": label})
 
     for tier in ("a", "e", "s", "r"):
         for row in tiers[tier]:
@@ -76,7 +79,7 @@ def build_ref(code: str) -> list[dict]:
                 if name in fam:
                     emit_db(oid, fam[name], m.groups()[1:])
                 else:
-                    emit_text(oid, _label(m.group(1), m.groups()[1:]))
+                    emit_text(oid, m.group(1), m.groups()[1:])
             for a, pt in bare:                           # 2) 별칭(법/영/규정/세칙) 제N조…
                 for m in bare_re[a].finditer(body):
                     emit_db(oid, pt, m.groups())
