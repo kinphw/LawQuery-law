@@ -8,11 +8,16 @@
 import re
 import sys
 
-from pipeline import load_job, write_artifact
+from pipeline import load_job, read_artifact, write_artifact
 from lawparse.ids import resolve_node
 from fetcher import law_api
 
 _JHH = r"제(\d+)조(?:의(\d+))?(?:제(\d+)항)?(?:제(\d+)호)?"   # 조[의M][제K항][제L호]
+
+
+def _jo(nid: str) -> str:
+    """노드ID → 소속 조('A2_20h'→'A2', 'E4_2_1h'→'E4_2'). 가지조문 _M은 유지."""
+    return re.sub(r"_\d+h.*$", "", nid) if nid else nid
 _BRACKET = re.compile(r"「([^」]+)」\s*" + _JHH)
 _SELF = re.compile(_JHH)                                     # bare 제N조 (자기 단 자기참조)
 # 표준 단별 별칭(가족 내부) — refers(상위 지칭)에 없는 영→e·세칙→r 까지 잡아 db_e/db_r 누락 방지
@@ -69,6 +74,12 @@ def build_ref(code: str) -> list[dict]:
     tiers = split_tiers(code)                            # 분할 후 행(항/호 입도)
     fam = _family(job)
     nodes = {t: {r[f"id_{t}"] for r in tiers[t] if r.get(f"id_{t}")} for t in ("a", "e", "s", "r")}
+    # 위임(rdb) 부모로 가는 참조는 제외 — 연계표에 이미 구조로 보임(예: 시행령이 모법 위임조 인용).
+    try:
+        edges = read_artifact(code, "rdb.json").get("edges", [])
+    except Exception:
+        edges = []
+    rdb_pairs = {(_jo(e["id_start"]), _jo(e["id_end"])) for e in edges}  # (상위조, 하위조)
     bare = [(a, fam[a]) for a in fam if a[:1] != "「"]
     bare_re = {a: re.compile(rf"(?<![가-힣]){re.escape(a)}\s*" + _JHH) for a, _ in bare}
     bare_words = {a.strip("「」") for a in fam}          # 별칭 뒤 제N조는 별칭참조(자기참조 아님)
@@ -87,7 +98,11 @@ def build_ref(code: str) -> list[dict]:
     def emit_db(oid, pt, g):
         jo, ga, hang, ho = _ints(g)
         tgt = resolve_node(pt, jo, ga, hang, ho, nodes[pt])    # 최세밀 노드(항/호)
-        if tgt and tgt != oid and (oid, f"db_{pt}", tgt) not in seen:
+        if not tgt or tgt == oid:
+            return
+        if (_jo(tgt), _jo(oid)) in rdb_pairs:                  # 위임 상위(rdb 부모) → 연계표 중복, 제외
+            return
+        if (oid, f"db_{pt}", tgt) not in seen:
             seen.add((oid, f"db_{pt}", tgt))
             rows.append({"id": None, "id_origin": oid, "ref_type": f"db_{pt}",
                          "ref_target": tgt, "ref_content": None})
