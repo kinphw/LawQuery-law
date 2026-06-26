@@ -10,6 +10,8 @@ import re
 import sys
 
 from pipeline import load_job, read_artifact, write_artifact
+from lawparse.article_split import split_article
+from lawparse.ids import resolve_node
 
 UP = {"a": "A", "e": "E", "s": "S", "r": "R"}
 _DELETED = re.compile(r"^제\d+조(?:의\d+)?\s*삭\s*제\s*<")
@@ -22,7 +24,8 @@ def _alias_re(alias: str) -> str:
 
 def _citation_re(refers: list[str]) -> re.Pattern:
     body = "|".join(_alias_re(a) for a in refers)
-    return re.compile(rf"(?:{body})(?:\s*\([^)]*\))?\s*제(\d+)조(?:의(\d+))?")
+    # 조[의M] 까지로 엣지 결정 + 항/호(그룹3·4)는 강조쌍 정밀위치용
+    return re.compile(rf"(?:{body})(?:\s*\([^)]*\))?\s*제(\d+)조(?:의(\d+))?(?:제(\d+)항)?(?:제(\d+)호)?")
 
 
 def build_rdb(code: str) -> dict:
@@ -30,13 +33,15 @@ def build_rdb(code: str) -> dict:
     data = read_artifact(code, "data.json")
     nodes = {t: {r[f"id_{t}"] for r in data[t]} for t in ("a", "e", "s", "r")}
 
-    edges, inferred, deleted, multi = [], [], [], []
+    edges, inferred, deleted, multi, highlights = [], [], [], [], []
     for tier, src in job["sources"].items():
         parent = src.get("parent")
         if not parent:
             continue
         up = UP[parent]
         pat = _citation_re(src["refers"])
+        up_content = {r[f"id_{parent}"]: (r.get(f"content_{parent}") or "") for r in data[parent]}
+        up_split: dict = {}                          # 상위조 → 분할자식 id집합(강조 up_part 해석·캐시)
         anchor = job.get("umbrella", {}).get(tier)
         n_prec = n_inf = 0
         for row in data[tier]:
@@ -49,8 +54,24 @@ def build_rdb(code: str) -> dict:
             cs, seen = [], set()
             for m in pat.finditer(body):
                 nid = f"{up}{int(m.group(1))}" + (f"_{int(m.group(2))}" if m.group(2) else "")
-                if nid in nodes[parent] and nid not in seen:
+                if nid not in nodes[parent]:
+                    continue
+                if nid not in seen:
                     seen.add(nid); cs.append(nid)
+                # 정밀 강조쌍 — 상위 어느 항/호 ↔ 하위(자기) 어느 항/호 (항/호 인용일 때만)
+                if m.group(3) or m.group(4):
+                    jo = int(m.group(1)); ga = int(m.group(2)) if m.group(2) else None
+                    hang = int(m.group(3)) if m.group(3) else None
+                    ho = int(m.group(4)) if m.group(4) else None
+                    if nid not in up_split:
+                        up_split[nid] = {c for c, _ in split_article(nid, up_content.get(nid, ""), "hangho")[1]}
+                    up_part = resolve_node(parent, jo, ga, hang, ho, up_split[nid])
+                    if up_part and up_part != nid:       # 정밀 노드로 좁혀졌을 때만
+                        needle = (f"제{jo}조" + (f"의{ga}" if ga else "")
+                                  + (f"제{hang}항" if hang else "") + (f"제{ho}호" if ho else ""))
+                        down_part = next((dc for dc, dt in split_article(cid, body, "hangho")[1]
+                                          if needle in dt.replace(" ", "")), cid)
+                        highlights.append({"up": up_part, "down": down_part})
             if cs:
                 edges.append({"id_start": cs[0], "id_end": cid})
                 anchor = cs[0]                       # 직전 앵커 갱신
@@ -63,11 +84,14 @@ def build_rdb(code: str) -> dict:
                 n_inf += 1
         print(f"  {tier}→{parent}: 정밀 {n_prec}, 엄브렐러 {n_inf}")
 
-    out = {"edges": edges, "inferred": inferred, "multi": multi, "deleted": deleted}
+    # 강조쌍 중복 제거(여러 매치가 같은 쌍 낼 수 있음)
+    highlights = [{"up": u, "down": d} for (u, d) in sorted({(h["up"], h["down"]) for h in highlights})]
+    out = {"edges": edges, "inferred": inferred, "multi": multi, "deleted": deleted,
+           "highlights": highlights}
     write_artifact(code, "rdb.json", out)
     print(f"저장: jobs/{code}/rdb.json  엣지 {len(edges)} "
           f"(정밀 {len(edges)-len(inferred)}, 엄브렐러 {len(inferred)}), "
-          f"다중인용 {len(multi)}, 삭제조 {len(deleted)}")
+          f"다중인용 {len(multi)}, 삭제조 {len(deleted)}, 강조쌍 {len(highlights)}")
     return out
 
 
