@@ -19,6 +19,7 @@ SHEETS: dict[str, tuple[str, list[str]]] = {
     "penalty":   ("db_penalty",   ["id", "penalty_a_phy", "penalty_a_log"]),
     "penalty_a": ("db_penalty_a", ["id", "category", "item_a_phy", "item_a_log", "content_pa", "penalty_a_phy", "id_a"]),
     "penalty_e": ("db_penalty_e", ["id", "content_pe", "item_a_log", "penalty_e_log", "item_a_phy"]),
+    "rdb_hl":    ("db_rdb_hl",    ["id", "up_id", "down_id"]),  # 인용 정밀 강조쌍(상위 항/호 ↔ 하위 항/호)
 }
 
 # 필수 시트(없으면 적재 불가) / 선택 시트(벌칙)
@@ -30,10 +31,10 @@ OPTIONAL_SHEETS = ["penalty", "penalty_a", "penalty_e"]
 NODE_ID_COLUMN = {"a": "id_a", "e": "id_e", "s": "id_s", "r": "id_r", "annex": "id_annex"}
 
 # id 컬럼이 실키가 아니라 단순 순번인 테이블(없으면 1..N 자동부여)
-AUTO_ID_SHEETS = ["ref", "rdb", "penalty", "penalty_a", "penalty_e"]
+AUTO_ID_SHEETS = ["ref", "rdb", "penalty", "penalty_a", "penalty_e", "rdb_hl"]
 
 # 적재 순서(부모 단을 먼저). meta → 본문 → 별표/참조/연계 → 벌칙
-LOAD_ORDER = ["meta", "a", "e", "s", "r", "annex", "ref", "rdb", "penalty", "penalty_a", "penalty_e"]
+LOAD_ORDER = ["meta", "a", "e", "s", "r", "annex", "ref", "rdb", "rdb_hl", "penalty", "penalty_a", "penalty_e"]
 
 # 레코드 단위 편집용 PK 컬럼(시트별). 에디터가 이 키로 UPDATE/DELETE 한다.
 PK_COLUMN = {

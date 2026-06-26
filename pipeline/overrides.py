@@ -39,6 +39,9 @@ def auto_rows(code, sheet):
     if sheet == "rdb":
         return [{"id_start": e["id_start"], "id_end": e["id_end"]}
                 for e in read_artifact(code, "rdb.json")["edges"]]
+    if sheet == "rdb_hl":
+        return [{"up_id": h["up"], "down_id": h["down"]}
+                for h in read_artifact(code, "rdb.json").get("highlights", [])]
     if sheet in ("penalty", "penalty_a", "penalty_e"):
         return read_artifact(code, "penalty.json").get(sheet, [])
     return []

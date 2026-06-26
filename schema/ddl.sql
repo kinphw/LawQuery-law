@@ -89,6 +89,16 @@ CREATE TABLE IF NOT EXISTS `rdb` (
   PRIMARY KEY (`_pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
+-- 인용 정밀 강조쌍: 하위 조의 어느 항/호(down_id)가 상위 조의 어느 항/호(up_id)를 인용하는가.
+-- rdb(조 단위 트리)는 그대로, 연계표/팝업에서 '실제 참조된 부분'만 강조하는 데 사용.
+CREATE TABLE IF NOT EXISTS `db_rdb_hl` (
+  `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
+  `id` bigint(20) DEFAULT NULL,
+  `up_id` text DEFAULT NULL,
+  `down_id` text DEFAULT NULL,
+  PRIMARY KEY (`_pk`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+
 -- 벌칙 (선택)
 CREATE TABLE IF NOT EXISTS `db_penalty` (
   `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
