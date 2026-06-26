@@ -64,10 +64,12 @@ def _merge_sched(tier: str, name: str, cur_eff: str, cur_arts: list):
             continue                                     # 변경 없음(현행과 동일)
         jid = stem_id(tier, *key)
         sched_map[jid] = [content, sef]                  # ① 조 단위(미분리 조용)
-        if cur_content is None:                          # 신설 조 → 본문 행 생성(미래본문)
+        if cur_content is None:                          # 신설 조(아직 시행전) → 현행본문 비움.
             title = f"제{key[0]}조" + (f"의{key[1]}" if key[1] else "") + \
                     (f"({a['조제목']})" if a["조제목"] else "")
-            extra.append({"jo": key[0], "ga": key[1], "title": title, "stem": content, "items": []})
+            extra.append({"jo": key[0], "ga": key[1], "title": title,
+                          "stem": "", "items": []})        # content_a="" → 시행예정(gray)만 표시
+
         else:                                            # ② 변경 조 → 항/호 단위 diff(분리 조용)
             ch = dict(split_article(jid, cur_content, "hang")[1])
             for cid, ctext in split_article(jid, content, "hang")[1]:
