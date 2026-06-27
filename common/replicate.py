@@ -171,9 +171,12 @@ def replicate_db(code: str, log=print) -> None:
                               env={**os.environ, "MYSQL_PWD": dev["pw"]})
         p2 = subprocess.Popen(load_cmd, stdin=p1.stdout, stderr=subprocess.PIPE,
                               env={**os.environ, "MYSQL_PWD": prod_pw})
-        p1.stdout.close()
+        p1.stdout.close()                 # p2 종료 시 p1 이 SIGPIPE 받도록
         _, e2 = p2.communicate()
-        _, e1 = p1.communicate()
+        # stdout은 위에서 닫음 → p1.communicate()는 '닫힌 파일 read' 잡음 발생. stderr만 직접 읽는다.
+        e1 = p1.stderr.read()
+        p1.stderr.close()
+        p1.wait()
         if p1.returncode:
             raise RuntimeError(f"mysqldump 실패: {e1.decode('utf-8', 'replace')[:400]}")
         if p2.returncode:
