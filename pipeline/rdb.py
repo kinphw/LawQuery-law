@@ -29,6 +29,21 @@ def _unit_at(body: str, pos: int):
     return int(ms[-1].group(1)) if ms else None      # 호-직속 조: 직전 호
 
 
+def _enum_nums(tail: str, unit: str, start: int) -> list[int]:
+    """메인 번호 start + tail 앞부분의 같은 단위 나열/범위를 모두 포함한 번호 리스트.
+    예) start=1, ', 제2호 및 제4호…' → [1,2,4];  '부터 제3호까지' → [1,2,3].
+    '제N조제1호, 제2호 및 제4호'처럼 둘째 이후는 '제K{unit}'만 반복되는 패턴."""
+    nums = {start}
+    rng = re.match(rf"\s*(?:부터\s*제(\d+){unit}\s*까지|내지\s*제(\d+){unit})", tail)
+    if rng:
+        end = int(rng.group(1) or rng.group(2))
+        nums |= set(range(min(start, end), max(start, end) + 1))
+    enum = re.match(rf"(?:\s*(?:,|·|ㆍ|및|와|과)\s*제\d+{unit})+", tail)
+    if enum:
+        nums |= {int(x) for x in re.findall(rf"제(\d+){unit}", enum.group(0))}
+    return sorted(nums)
+
+
 def _alias_re(alias: str) -> str:
     esc = re.escape(alias).replace(r"\ ", r"\s*")  # 공백 유연화
     return esc if alias[:1] == "「" else r"(?<![가-힣])" + esc
@@ -77,13 +92,17 @@ def build_rdb(code: str) -> dict:
                     ho = int(m.group(4)) if m.group(4) else None
                     if nid not in up_split:
                         up_split[nid] = {c for c, _ in split_article(nid, up_content.get(nid, ""), "hangho")[1]}
-                    up_part = resolve_node(parent, jo, ga, hang, ho, up_split[nid])
-                    if up_part and up_part != nid:       # 정밀 노드로 좁혀졌을 때만
-                        # 인용이 들어있는 '실제 위치'의 항/호 — 같은 인용문이 여러 항에 나와도
-                        # m.start() 위치로 정확히(도입부면 None=조 단위).
-                        u = _unit_at(body, m.start())
-                        down_part = f"{cid}_{u}h" if u else cid
-                        highlights.append({"up": up_part, "down": down_part})
+                    # 인용이 들어있는 '실제 위치'의 항/호 — 같은 인용문이 여러 항에 나와도
+                    # m.start() 위치로 정확히(도입부면 None=조 단위).
+                    u = _unit_at(body, m.start())
+                    down_part = f"{cid}_{u}h" if u else cid
+                    # 같은 조 내 나열/범위까지 모두 강조: '제1호, 제2호 및 제4호', '제1호부터 제3호까지'
+                    unit = "호" if ho else "항"
+                    for nn in _enum_nums(body[m.end():], unit, ho if ho else hang):
+                        up_part = (resolve_node(parent, jo, ga, hang, nn, up_split[nid]) if ho
+                                   else resolve_node(parent, jo, ga, nn, None, up_split[nid]))
+                        if up_part and up_part != nid:   # 정밀 노드로 좁혀졌을 때만
+                            highlights.append({"up": up_part, "down": down_part})
             if cs:
                 edges.append({"id_start": cs[0], "id_end": cid})
                 anchor = cs[0]                       # 직전 앵커 갱신
