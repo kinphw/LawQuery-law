@@ -15,6 +15,18 @@ from lawparse.ids import resolve_node
 
 UP = {"a": "A", "e": "E", "s": "S", "r": "R"}
 _DELETED = re.compile(r"^제\d+조(?:의\d+)?\s*삭\s*제\s*<")
+_HANG = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮"
+
+
+def _unit_at(body: str, pos: int):
+    """body의 pos 위치가 속한 항/호 번호(도입부면 None). 강조 down 위치 결정용 — 같은
+    인용문이 여러 항/호에 나와도 '실제 그 인용이 있는 항/호'를 위치로 정확히 집는다."""
+    seg = body[:pos]
+    hangs = [(seg.rfind(h), i + 1) for i, h in enumerate(_HANG) if h in seg]
+    if hangs:
+        return max(hangs)[1]                         # 직전(가장 뒤) 항 마커
+    ms = list(re.finditer(r"(?m)^\s*(\d+)\s*\.", seg))
+    return int(ms[-1].group(1)) if ms else None      # 호-직속 조: 직전 호
 
 
 def _alias_re(alias: str) -> str:
@@ -67,11 +79,10 @@ def build_rdb(code: str) -> dict:
                         up_split[nid] = {c for c, _ in split_article(nid, up_content.get(nid, ""), "hangho")[1]}
                     up_part = resolve_node(parent, jo, ga, hang, ho, up_split[nid])
                     if up_part and up_part != nid:       # 정밀 노드로 좁혀졌을 때만
-                        # 매치 전체(별칭 포함)로 위치 탐색 — 일반 '제N조제K호'가 다른 법 인용에
-                        # 오매치되는 것 방지(없으면 도입부=조 단위 → 셀 전체 강조).
-                        needle = re.sub(r"\s", "", m.group(0))
-                        down_part = next((dc for dc, dt in split_article(cid, body, "hangho")[1]
-                                          if needle in re.sub(r"\s", "", dt)), cid)
+                        # 인용이 들어있는 '실제 위치'의 항/호 — 같은 인용문이 여러 항에 나와도
+                        # m.start() 위치로 정확히(도입부면 None=조 단위).
+                        u = _unit_at(body, m.start())
+                        down_part = f"{cid}_{u}h" if u else cid
                         highlights.append({"up": up_part, "down": down_part})
             if cs:
                 edges.append({"id_start": cs[0], "id_end": cid})
