@@ -67,10 +67,11 @@ def build_rdb(code: str) -> dict:
                         up_split[nid] = {c for c, _ in split_article(nid, up_content.get(nid, ""), "hangho")[1]}
                     up_part = resolve_node(parent, jo, ga, hang, ho, up_split[nid])
                     if up_part and up_part != nid:       # 정밀 노드로 좁혀졌을 때만
-                        needle = (f"제{jo}조" + (f"의{ga}" if ga else "")
-                                  + (f"제{hang}항" if hang else "") + (f"제{ho}호" if ho else ""))
+                        # 매치 전체(별칭 포함)로 위치 탐색 — 일반 '제N조제K호'가 다른 법 인용에
+                        # 오매치되는 것 방지(없으면 도입부=조 단위 → 셀 전체 강조).
+                        needle = re.sub(r"\s", "", m.group(0))
                         down_part = next((dc for dc, dt in split_article(cid, body, "hangho")[1]
-                                          if needle in dt.replace(" ", "")), cid)
+                                          if needle in re.sub(r"\s", "", dt)), cid)
                         highlights.append({"up": up_part, "down": down_part})
             if cs:
                 edges.append({"id_start": cs[0], "id_end": cid})
