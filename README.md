@@ -10,9 +10,13 @@
 
 ## ① Claude 에게 지시하는 법 (자연어 → Claude 가 실행)
 
+> **최전선 진입로**: 허브(`Dashboard.pyw`)의 **법령 인테이크** 탭에서 약자·단수·단별 명칭·지시를 입력 →
+> `intake/<코드>.json` 저장(기존 구축법 목록·단별 상세도 표시). 그 뒤 **"intake/<코드>.json 읽고 작업해줘"**
+> 한마디면 아래 첫 행이 그대로 실행됨. 스키마·지침 = [intake/README.md](intake/README.md). (구 `NewLaw.pyw` 폼은 `legacy/`.)
+
 | 이렇게 말하면 | Claude 가 하는 일 |
 |---|---|
-| **"○○법 추가해줘 (코드 X, N단)"** | MCP로 소스 검색 → `jobs/X/job.json` 작성 → `run X`(dry) 검토 → `run X --apply` → `verify X` → 무인용 rdb 등 판단보정 제안 |
+| **"intake/X.json 읽고 작업해줘"** / **"○○법 추가해줘 (코드 X, N단)"** | MCP로 소스 검색 → `jobs/X/job.json` 작성 → `run X`(dry) 검토 → `run X --apply` → `verify X` → 무인용 rdb 등 판단보정 제안 |
 | **"별표만 다시 가져와"** (참조/벌칙도) | `run X --only=annex --apply` (해당 테이블만, rdb 큐레이션 안전) |
 | **"규정 개정됐어, 갱신해줘"** | `run X --apply --force` (전체 재생성 + **내 오버라이드 자동 재적용**) |
 | **"내 수정 저장해줘"** | `python -m pipeline.overrides X` (= GUI '오버라이드 저장') |
