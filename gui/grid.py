@@ -112,7 +112,7 @@ class TableTab(ttk.Frame):
         ttk.Button(bar, text="＋ 추가", command=self.add).pack(side="left", padx=2)
         ttk.Button(bar, text="✎ 편집(행)", command=self.edit).pack(side="left", padx=2)
         ttk.Button(bar, text="🗑 삭제", command=self.delete).pack(side="left", padx=2)
-        if sheet in ("a", "e", "s", "r"):
+        if sheet in ("a", "e", "s", "r", "b"):
             ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
             ttk.Button(bar, text="↳ 항 분리", command=lambda: self.split("hang")).pack(side="left", padx=2)
             ttk.Button(bar, text="↳ 항호 분리", command=lambda: self.split("hangho")).pack(side="left", padx=2)

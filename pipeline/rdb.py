@@ -13,7 +13,7 @@ from pipeline import load_job, read_artifact, write_artifact
 from lawparse.article_split import split_article
 from lawparse.ids import resolve_node
 
-UP = {"a": "A", "e": "E", "s": "S", "r": "R"}
+UP = {"a": "A", "e": "E", "s": "S", "r": "R", "b": "B"}
 _DELETED = re.compile(r"^제\d+조(?:의\d+)?\s*삭\s*제\s*<")
 _HANG = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮"
 
@@ -58,7 +58,24 @@ def _citation_re(refers: list[str]) -> re.Pattern:
 def build_rdb(code: str) -> dict:
     job = load_job(code)
     data = read_artifact(code, "data.json")
-    nodes = {t: {r[f"id_{t}"] for r in data[t]} for t in ("a", "e", "s", "r")}
+    nodes = {t: {r[f"id_{t}"] for r in data.get(t, [])} for t in ("a", "e", "s", "r", "b")}
+
+    # 스파인 기본 앵커: 무인용 '도입부' 조(목적·정의 등 상위법을 통째 지칭)는 직전 단의 첫 조에
+    # 매달아 A1→E1→S1→R1→B1 대각 정렬(모두 A1 직속이 되는 UX 문제 해소).
+    # job.json umbrella[tier] 가 있으면 그게 우선(명시 override). 도입부 이후 정밀인용이 나오면
+    # 앵커가 그 상위조로 갱신되므로 스파인은 '첫 정밀인용 전' 도입부 묶음에만 적용된다.
+    present = list(job["sources"].keys())
+    first_node = {t: next((r[f"id_{t}"] for r in data.get(t, []) if r.get(f"id_{t}")), None)
+                  for t in present}
+
+    def _seed(tier: str):
+        u = job.get("umbrella", {}).get(tier)
+        if u:
+            return u
+        for pt in reversed(present[:present.index(tier)]):   # 직전 '존재하는' 단의 첫 조
+            if first_node.get(pt):
+                return first_node[pt]
+        return None
 
     edges, inferred, deleted, multi, highlights = [], [], [], [], []
     for tier, src in job["sources"].items():
@@ -69,7 +86,7 @@ def build_rdb(code: str) -> dict:
         pat = _citation_re(src["refers"])
         up_content = {r[f"id_{parent}"]: (r.get(f"content_{parent}") or "") for r in data[parent]}
         up_split: dict = {}                          # 상위조 → 분할자식 id집합(강조 up_part 해석·캐시)
-        anchor = job.get("umbrella", {}).get(tier)
+        anchor = _seed(tier)
         n_prec = n_inf = 0
         for row in data[tier]:
             cid = row[f"id_{tier}"]

@@ -20,8 +20,18 @@ def _jo(nid: str) -> str:
     return re.sub(r"_\d+h.*$", "", nid) if nid else nid
 _BRACKET = re.compile(r"「([^」]+)」\s*" + _JHH)
 _SELF = re.compile(_JHH)                                     # bare 제N조 (자기 단 자기참조)
-# 표준 단별 별칭(가족 내부) — refers(상위 지칭)에 없는 영→e·세칙→r 까지 잡아 db_e/db_r 누락 방지
-STD_ALIAS = {"a": ["법"], "e": ["영", "시행령"], "s": ["규정", "감독규정"], "r": ["세칙", "시행세칙"]}
+# 표준 단별 자기별칭 — 단 letter가 아니라 short(표시명)의 '성격'으로 매핑(5단 호환).
+#   4단 j/g: a법률→[법]·e시행령→[영,시행령]·s감독규정→[규정,감독규정]·r시행세칙→[세칙,시행세칙] (기존과 동일)
+#   5단 y/s: s시행규칙→[시행규칙,규칙]·r감독규정→[규정,감독규정]·b시행세칙→[세칙,시행세칙]
+def _self_aliases(short: str) -> list[str]:
+    s = (short or "").strip()
+    for kw, al in (("시행령", ["영", "시행령"]), ("시행규칙", ["시행규칙", "규칙"]),
+                   ("시행세칙", ["세칙", "시행세칙"]), ("세칙", ["세칙", "시행세칙"]),
+                   ("감독규정", ["규정", "감독규정"]), ("규정", ["규정", "감독규정"]),
+                   ("규칙", ["규칙"]), ("법", ["법"])):
+        if kw in s:
+            return al
+    return []
 
 
 def _family(job: dict) -> dict:
@@ -30,8 +40,8 @@ def _family(job: dict) -> dict:
         p = src.get("parent")
         for a in (src.get("refers", []) if p else []):
             fam[a] = p
-    for tier in job["sources"]:                          # ② 표준 단별 별칭(존재하는 단만, 기존 우선)
-        for a in STD_ALIAS.get(tier, []):
+    for tier, src in job["sources"].items():             # ② 단별 표준 자기별칭(short 기반, 기존 우선)
+        for a in _self_aliases(src.get("short", "")):
             fam.setdefault(a, tier)
     return fam
 
@@ -73,7 +83,7 @@ def build_ref(code: str) -> list[dict]:
     job = load_job(code)
     tiers = split_tiers(code)                            # 분할 후 행(항/호 입도)
     fam = _family(job)
-    nodes = {t: {r[f"id_{t}"] for r in tiers[t] if r.get(f"id_{t}")} for t in ("a", "e", "s", "r")}
+    nodes = {t: {r[f"id_{t}"] for r in tiers[t] if r.get(f"id_{t}")} for t in tiers}
     # 위임(rdb) 부모로 가는 참조는 제외 — 연계표에 이미 구조로 보임(예: 시행령이 모법 위임조 인용).
     try:
         edges = read_artifact(code, "rdb.json").get("edges", [])
@@ -119,7 +129,7 @@ def build_ref(code: str) -> list[dict]:
         rows.append({"id": None, "id_origin": oid, "ref_type": "text",
                      "ref_target": url, "ref_content": content})
 
-    for tier in ("a", "e", "s", "r"):
+    for tier in tiers:
         for row in tiers[tier]:
             oid = row.get(f"id_{tier}")
             if not oid:                                  # 장/절 title행

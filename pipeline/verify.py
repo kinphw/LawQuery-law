@@ -15,9 +15,12 @@ def verify(code: str, target: str = "dev"):
     conn = get_connection(f"ldb_{code}", target=target)
     cur = conn.cursor()
     nodes = {}
-    for t in ("a", "e", "s", "r"):
-        cur.execute(f"SELECT id_{t} FROM db_{t} WHERE id_{t} IS NOT NULL")
-        nodes[t] = {r[0] for r in cur.fetchall()}
+    for t in ("a", "e", "s", "r", "b"):
+        try:
+            cur.execute(f"SELECT id_{t} FROM db_{t} WHERE id_{t} IS NOT NULL")
+            nodes[t] = {r[0] for r in cur.fetchall()}
+        except Exception:                              # 4단 법은 db_b 없음 → 빈 집합
+            nodes[t] = set()
     cur.execute("SELECT id_start, id_end FROM rdb")
     edges = cur.fetchall()
     conn.close()
@@ -35,12 +38,12 @@ def verify(code: str, target: str = "dev"):
                 seen.add(c); stack.append(c)
 
     deleted = set(read_artifact(code, "rdb.json").get("deleted", []))
-    print(f"노드 {len(alln)} (a{len(nodes['a'])}/e{len(nodes['e'])}/s{len(nodes['s'])}/r{len(nodes['r'])}), "
-          f"엣지 {len(edges)}, dangling {len(dangling)}")
+    tiersig = "/".join(f"{t}{len(nodes[t])}" for t in ("a", "e", "s", "r", "b") if nodes.get(t))
+    print(f"노드 {len(alln)} ({tiersig}), 엣지 {len(edges)}, dangling {len(dangling)}")
     for s, e in dangling[:10]:
         print(f"   ⚠ dangling {s}→{e}")
     bad = 0
-    for t in ("e", "s", "r"):
+    for t in ("e", "s", "r", "b"):
         unreached = nodes[t] - seen - deleted
         if unreached:
             bad += len(unreached)

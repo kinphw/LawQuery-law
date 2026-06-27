@@ -5,7 +5,7 @@ Article(공통 입력 — API/텍스트 둘 다 이 형태로 정규화):
   {'jo':2, 'ga':None, 'title':'제2조(정의)', 'stem':'제2조(정의) …', 'items':[' 1. …', ' 2. …']}
   {'type':'title', 'title':'제1장 총칙'}   # 장/절 (db_a 만)
 """
-_UP = {'a': 'A', 'e': 'E', 's': 'S', 'r': 'R'}
+_UP = {'a': 'A', 'e': 'E', 's': 'S', 'r': 'R', 'b': 'B'}
 
 
 def stem_id(tier: str, jo, ga=None) -> str:

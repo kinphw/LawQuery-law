@@ -48,7 +48,18 @@ CREATE TABLE IF NOT EXISTS `db_r` (
   PRIMARY KEY (`_pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
--- 별표(B단)
+-- 5단째 본문 단(시행규칙 등 추가 단). 4단 법은 빈 테이블. 백엔드는 db_meta 단수로 step 판단.
+CREATE TABLE IF NOT EXISTS `db_b` (
+  `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
+  `seq` bigint(20) DEFAULT NULL,
+  `id_b` text DEFAULT NULL,
+  `content_b` text DEFAULT NULL,
+  `content_b_sched` text DEFAULT NULL COMMENT '시행예정 내용',
+  `sched_date` varchar(10) DEFAULT NULL,
+  PRIMARY KEY (`_pk`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+
+-- 별표
 CREATE TABLE IF NOT EXISTS `db_annex` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `origin` enum('a','e','s','r','b') NOT NULL COMMENT '원규정 타입',

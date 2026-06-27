@@ -16,7 +16,7 @@ import sys
 from fetcher import law_api
 from pipeline import load_job, read_artifact, write_artifact
 
-UP = {"a": "A", "e": "E", "s": "S", "r": "R"}
+UP = {"a": "A", "e": "E", "s": "S", "r": "R", "b": "B"}
 BASE = "https://www.law.go.kr"
 _REL = re.compile(r"제(\d+)조(?:의(\d+))?[^)]*관련")   # (제N조[의M] … 관련)
 

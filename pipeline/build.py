@@ -117,8 +117,8 @@ def build(code: str) -> dict:
     data["meta"] = meta
     write_artifact(code, "data.json", data)
     write_artifact(code, "sched.json", sched_all)
-    print(f"저장: jobs/{code}/data.json  (a:{len(data['a'])} e:{len(data['e'])} "
-          f"s:{len(data['s'])} r:{len(data['r'])}), 시행예정 노드 {len(sched_all)}")
+    sig = " ".join(f"{t}:{len(data[t])}" for t in ("a", "e", "s", "r", "b") if data.get(t))
+    print(f"저장: jobs/{code}/data.json  ({sig}), 시행예정 노드 {len(sched_all)}")
     return data
 
 
