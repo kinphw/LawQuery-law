@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LawQuery 허브</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">⚖</span>
+      <div>
+        <div class="brand-name">LawQuery 허브</div>
+        <div class="brand-sub">control panel</div>
+      </div>
+    </div>
+    <nav id="nav">
+      <a href="#/" data-route="/">🏠 홈</a>
+      <a href="#/intake" data-route="/intake">📥 법령 인테이크</a>
+      <a href="#/pipeline" data-route="/pipeline">⚙ 파이프라인</a>
+      <a href="#/registry" data-route="/registry">🌐 노출 레지스트리</a>
+      <a href="#/tools" data-route="/tools">🧰 도구</a>
+    </nav>
+    <div class="sidebar-foot">
+      <button id="shutdown-btn" class="btn btn-ghost-danger" title="허브 서버 종료">⏻ 허브 종료</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div id="view"></div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

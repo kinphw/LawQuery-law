@@ -30,11 +30,43 @@ def _conn(target: str):
     return get_connection(database=AUTH_DB, target=target)
 
 
+# ── 연결-주입 코어(conn 받음) — 대시보드가 SSH 터널 연결로 재사용 ──────────
+def _ensure(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute(_DDL)
+
+
+def _list(conn) -> list[dict]:
+    with conn.cursor(pymysql.cursors.DictCursor) as cur:
+        cur.execute(
+            "SELECT code, label, sort_order, enabled, kind "
+            "FROM law_registry ORDER BY sort_order, code"
+        )
+        return list(cur.fetchall())
+
+
+def _upsert(conn, code: str, label, sort_order: int, enabled: bool, kind: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO law_registry (code, label, sort_order, enabled, kind) "
+            "VALUES (%s, %s, %s, %s, %s) "
+            "ON DUPLICATE KEY UPDATE "
+            "  label=VALUES(label), sort_order=VALUES(sort_order), "
+            "  enabled=VALUES(enabled), kind=VALUES(kind)",
+            (code, (label or None), int(sort_order), 1 if enabled else 0, (kind or "law")),
+        )
+
+
+def _delete(conn, code: str) -> int:
+    with conn.cursor() as cur:
+        return cur.execute("DELETE FROM law_registry WHERE code=%s", (code,))
+
+
+# ── 공개 API(target 별 자체 연결) — GUI 가 그대로 사용 ─────────────────────
 def ensure_table(target: str = "dev") -> None:
     conn = _conn(target)
     try:
-        with conn.cursor() as cur:
-            cur.execute(_DDL)
+        _ensure(conn)
         conn.commit()
     finally:
         conn.close()
@@ -43,12 +75,7 @@ def ensure_table(target: str = "dev") -> None:
 def list_registry(target: str = "dev") -> list[dict]:
     conn = _conn(target)
     try:
-        with conn.cursor(pymysql.cursors.DictCursor) as cur:
-            cur.execute(
-                "SELECT code, label, sort_order, enabled, kind "
-                "FROM law_registry ORDER BY sort_order, code"
-            )
-            return list(cur.fetchall())
+        return _list(conn)
     finally:
         conn.close()
 
@@ -56,15 +83,7 @@ def list_registry(target: str = "dev") -> list[dict]:
 def upsert(code: str, label, sort_order: int, enabled: bool, kind: str, target: str = "dev") -> None:
     conn = _conn(target)
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO law_registry (code, label, sort_order, enabled, kind) "
-                "VALUES (%s, %s, %s, %s, %s) "
-                "ON DUPLICATE KEY UPDATE "
-                "  label=VALUES(label), sort_order=VALUES(sort_order), "
-                "  enabled=VALUES(enabled), kind=VALUES(kind)",
-                (code, (label or None), int(sort_order), 1 if enabled else 0, (kind or "law")),
-            )
+        _upsert(conn, code, label, sort_order, enabled, kind)
         conn.commit()
     finally:
         conn.close()
@@ -73,8 +92,7 @@ def upsert(code: str, label, sort_order: int, enabled: bool, kind: str, target: 
 def delete(code: str, target: str = "dev") -> int:
     conn = _conn(target)
     try:
-        with conn.cursor() as cur:
-            n = cur.execute("DELETE FROM law_registry WHERE code=%s", (code,))
+        n = _delete(conn, code)
         conn.commit()
         return n
     finally:

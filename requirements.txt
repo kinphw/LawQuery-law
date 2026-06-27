@@ -6,3 +6,6 @@ requests>=2.31
 # 운영 배포(개발→운영 정확복제) SSH 터널용 — common/replicate.py
 paramiko>=3.0
 sshtunnel>=0.4
+# 허브 대시보드(단일 현관 파사드) — Dashboard.pyw / dashboard/
+fastapi>=0.110
+uvicorn>=0.29
