@@ -15,14 +15,19 @@ class IntakeIn(BaseModel):
     code: str
     kind: str = "new"          # new | update
     tiers: int = 4             # 4 | 5(+별표)
-    names: dict = {}           # {a,e,s,r}
+    names: dict = {}           # {a,e,s,r} 단별 정확한 명칭(전체 공식 법령명)
+    labels: dict = {}          # {a,e,s,r} 단 종류명(감독규정/시행세칙 등) — 단별 수정 가능
     options: dict = {}         # {sched: bool}
     notes: str = ""
 
 
 @router.get("/meta")
 def meta():
-    return {"tiers": [{"code": c, "label": l, "kind": k} for c, l, k in intake_store.TIERS]}
+    # 단수(4/5)별 tier 목록 — 슬롯 의미가 단수에 따라 시프트하므로 라벨도 단수별로 다름.
+    return {"tiersByRank": {
+        str(rank): [{"code": c, "label": l, "kind": k} for c, l, k in tiers]
+        for rank, tiers in intake_store.TIERS_BY_RANK.items()
+    }}
 
 
 @router.get("/list")
@@ -61,6 +66,7 @@ def create(body: IntakeIn):
         "kind": kind,
         "tiers": int(body.tiers),
         "names": {k: (v or "").strip() for k, v in body.names.items()},
+        "labels": {k: (v or "").strip() for k, v in body.labels.items() if (v or "").strip()},
         "options": body.options or {"sched": False},
         "notes": (body.notes or "").strip(),
         "created": datetime.date.today().isoformat(),

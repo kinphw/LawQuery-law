@@ -1,0 +1,8 @@
+{
+  "annex": {
+    "modify": {
+      "R_AN0": { "id_src": "R18", "annex_no": "별표" }
+    }
+  },
+  "content": {}
+}

@@ -24,5 +24,7 @@ if __name__ == "__main__":
         port=config.PORT,
         log_level="info",
         reload=True,                          # 코드 수정 시 자동 반영
-        reload_dirs=[os.path.dirname(__file__)],
+        reload_dirs=[os.path.dirname(__file__)],          # dashboard/ 만 감시
+        reload_includes=["*.py", "*.html", "*.css", "*.js"],
+        reload_excludes=["*.pyc", "__pycache__/*"],       # 라이브러리·캐시 미감시
     )
