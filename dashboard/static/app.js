@@ -35,7 +35,7 @@ const statusTag = (s) =>
 
 // ── SSE 로그 실행 ─────────────────────────────────────────
 let activeES = null;
-function runStream(url, logEl, btns) {
+function runStream(url, logEl, btns, onDone) {
   if (activeES) { activeES.close(); activeES = null; }
   logEl.innerHTML = "";
   const append = (html) => { logEl.insertAdjacentHTML("beforeend", html); logEl.scrollTop = logEl.scrollHeight; };
@@ -52,6 +52,7 @@ function runStream(url, logEl, btns) {
       es.close(); activeES = null;
       btns.forEach((b) => (b.disabled = false));
       toast(ok ? "완료" : "실패 (로그 확인)", ok ? "ok" : "err");
+      if (onDone) { try { onDone(ok); } catch (e) { /* noop */ } }
     }
   };
   es.onerror = () => {
@@ -204,12 +205,8 @@ async function renderIntake(params) {
         </div>
       </div>
       <div class="field">
-        <label>단별 정확한 명칭<span class="hint">없는 단은 비워두세요</span></label>
-        ${META.tiers.map((t) => `
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-            <span style="width:90px;color:var(--muted)">${esc(t.label)}</span>
-            <input type="text" data-tier="${t.code}" placeholder="${t.code === "a" ? "○○법 (필수)" : ""}">
-          </div>`).join("")}
+        <label>단별 정확한 명칭<span class="hint">없는 단은 비워두세요 · 왼쪽 단 종류명도 수정 가능(예: s·r 둘 다 감독규정)</span></label>
+        <div id="tier-names-rows"></div>
       </div>
       <div class="field">
         <label class="checkbox"><input type="checkbox" id="f-sched"> 시행예정(미시행 개정) 반영</label>
@@ -231,16 +228,39 @@ async function renderIntake(params) {
     <div class="panel" style="padding:0;overflow:hidden"><div id="intake-list"></div></div>`;
 
   const codeEl = $("#f-code");
-  const tierEl = (c) => $(`[data-tier="${c}"]`);
+  const tierEl = (c) => $(`#tier-names-rows [data-tier="${c}"]`);
+  const currentTiers = () =>
+    META.tiersByRank[document.querySelector('[name=tiers]:checked').value] || META.tiersByRank["4"];
+  // 단수(4/5)에 맞춰 명칭 칸을 다시 렌더 — 슬롯 의미가 시프트하므로 라벨 기본값도 바뀜.
+  // 정확한 명칭(data-tier) 입력값은 슬롯 코드 기준으로 보존(전환 시 데이터 손실 방지).
+  // 단 종류명(data-label)은 단수 기본값으로 재설정(슬롯 의미가 단수따라 달라 보존이 오히려 오류) — setForm 이 저장값으로 덮음.
+  const renderTierRows = () => {
+    const cur = {};
+    document.querySelectorAll('#tier-names-rows [data-tier]').forEach((el) => (cur[el.dataset.tier] = el.value));
+    $("#tier-names-rows").innerHTML = currentTiers().map((t) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <input type="text" data-label="${t.code}" value="${esc(t.label)}" title="단 종류명 — 수정 가능 (예: s·r 둘 다 감독규정)"
+               style="width:92px;color:var(--muted);text-align:right">
+        <span class="muted" style="width:22px;font-size:12px">(${t.code.toUpperCase()})</span>
+        <input type="text" data-tier="${t.code}" style="flex:1" placeholder="${t.code === "a" ? "○○법 (필수)" : ""}">
+      </div>`).join("");
+    currentTiers().forEach((t) => { if (cur[t.code]) tierEl(t.code).value = cur[t.code]; });
+  };
   const setForm = (d) => {
     codeEl.value = d.code || "";
     document.querySelectorAll('[name=kind]').forEach((r) => (r.checked = r.value === (d.kind || "new")));
     document.querySelectorAll('[name=tiers]').forEach((r) => (r.checked = r.value === String(d.tiers || 4)));
-    META.tiers.forEach((t) => (tierEl(t.code).value = (d.names || {})[t.code] || ""));
+    renderTierRows();
+    const names = d.names || {};
+    document.querySelectorAll('#tier-names-rows [data-tier]').forEach((el) => (el.value = names[el.dataset.tier] || ""));
+    const labels = d.labels || {};  // 저장된 단 종류명만 덮고, 없으면 단수 기본값(이미 렌더됨) 유지
+    document.querySelectorAll('#tier-names-rows [data-label]').forEach((el) => { if (labels[el.dataset.label]) el.value = labels[el.dataset.label]; });
     $("#f-sched").checked = !!(d.options || {}).sched;
     $("#f-notes").value = d.notes || "";
   };
   const clearForm = () => { setForm({}); $("#f-loaded").textContent = ""; $("#f-handoff").innerHTML = ""; $("#f-detail").innerHTML = ""; codeEl.focus(); };
+  document.querySelectorAll('[name=tiers]').forEach((r) => (r.onchange = renderTierRows));
+  renderTierRows();
 
   // 이미 구축된 법 — 읽기용 상세 카드. 정식 법령명·시행일은 db_meta(meta), 소스 ID·별칭은 job.json.
   // 슬롯(a/e/s/r/b) 의미가 법마다 달라(예: y 는 s=시행규칙) 단 라벨은 위치(N단)+슬롯.
@@ -270,12 +290,14 @@ async function renderIntake(params) {
 
   $("#f-clear").onclick = clearForm;
   $("#f-save").onclick = async () => {
-    const names = {}; META.tiers.forEach((t) => (names[t.code] = tierEl(t.code).value.trim()));
+    const names = {}; document.querySelectorAll('#tier-names-rows [data-tier]').forEach((el) => (names[el.dataset.tier] = el.value.trim()));
+    const labels = {}; document.querySelectorAll('#tier-names-rows [data-label]').forEach((el) => (labels[el.dataset.label] = el.value.trim()));
     const payload = {
       code: codeEl.value.trim().toLowerCase(),
       kind: document.querySelector('[name=kind]:checked').value,
       tiers: Number(document.querySelector('[name=tiers]:checked').value),
       names,
+      labels,
       options: { sched: $("#f-sched").checked },
       notes: $("#f-notes").value.trim(),
     };
@@ -341,6 +363,11 @@ async function renderIntake(params) {
 // ── 파이프라인 ────────────────────────────────────────────
 async function renderPipeline(params) {
   const rows = await api("/api/intake/list");
+  const devMap = {};
+  try {
+    const ds = await api("/api/status/laws?target=dev");
+    (ds.laws || []).forEach((l) => { devMap[l.code] = l; });
+  } catch (e) { /* dev 상태 못 읽어도 파이프라인은 진행 */ }
   view.innerHTML = `
     <h1>파이프라인</h1>
     <p class="page-sub">법 하나를 적재·검증·배포하는 곳. 터미널 대신 버튼으로.</p>
@@ -384,10 +411,38 @@ async function renderPipeline(params) {
         <button class="btn btn-amber" id="b-replicate" title="dev → 운영 정확복제 (mysqldump | mysql, SSH 터널)">운영 배포 (복제)</button>
       </div>
     </div>
+    <div id="p-info"></div>
     <div class="log" id="p-log"><span class="meta">code 선택 후 작업 버튼을 누르세요.</span></div>`;
 
   const codeSel = $("#p-code");
   if (params.code) codeSel.value = params.code;
+
+  // 선택 피드백 — 고른 법의 개발 상태를 바로 보여주고, '운영과 비교'로 배포 전 차이 확인
+  const showSel = () => {
+    const c = codeSel.value;
+    if (!c) { $("#p-info").innerHTML = ""; return; }
+    const dl = devMap[c];
+    $("#p-info").innerHTML = `<div class="panel">
+      <div class="btn-row" style="justify-content:space-between;margin-bottom:8px">
+        <b>선택: <span class="code">${esc(c)}</span>${dl ? "" : ' <span class="muted">— 개발 DB 없음</span>'}</b>
+        <button class="btn btn-sm" id="p-cmp"${dl ? "" : " disabled"}>운영과 비교 (배포 전 확인)</button>
+      </div>
+      <div id="p-cmp-body">${dl ? lawTable([dl], null) : '<div class="empty">개발 DB가 없습니다 — 먼저 적재(dev) 하세요.</div>'}</div>
+    </div>`;
+    const cmp = $("#p-cmp");
+    if (cmp) cmp.onclick = async () => {
+      cmp.disabled = true; cmp.innerHTML = '<span class="spinner"></span> 운영 확인 중…';
+      try {
+        const prod = await api("/api/status/laws?target=prod");
+        const pl = (prod.laws || []).find((l) => l.code === c);
+        $("#p-cmp-body").innerHTML = lawTable(dl ? [dl] : [], pl ? [pl] : []);
+        cmp.textContent = "운영 다시 확인";
+      } catch (e) { toast(e.message, "err"); cmp.textContent = "운영 확인 재시도"; }
+      finally { cmp.disabled = false; }
+    };
+  };
+  codeSel.onchange = showSel;
+  showSel();
   const logEl = $("#p-log");
   const allBtns = ["#b-dry", "#b-apply", "#b-verify", "#b-replicate"].map((s) => $(s));
   const need = () => { const c = codeSel.value; if (!c) { toast("code 를 선택하세요", "err"); } return c; };
@@ -528,8 +583,197 @@ async function renderRegistry(params) {
   await load();
 }
 
+// ── 해외법령 이관 (dev/prod 비교 + 법 단위 복제) ───────────
+// 국내 ldb_<code> 와 달리 해외법령은 단일 fin_law_db 안에 모든 나라 법이 공존 →
+// DB 통째 덤프가 아니라 선택 code 한 건만 교체(다른 나라 법 무해).
+const JURIS_LABEL = { eu: "🇪🇺 EU", us: "🇺🇸 미국", jp: "🇯🇵 일본", hk: "🇭🇰 홍콩", sg: "🇸🇬 싱가포르", other: "기타" };
+const JURIS_RANK = { eu: 0, us: 1, jp: 2, hk: 3, sg: 4, other: 5 };
+
+function koRate(l) {
+  if (!l || !l.provision_count) return '<span class="muted">—</span>';
+  const pct = Math.round((l.ko_count / l.provision_count) * 100);
+  return `${l.ko_count}/${l.provision_count} <span class="muted">(${pct}%)</span>`;
+}
+// 상태는 dev/prod 지문(조문수·번역수·내용 CRC) 일치 여부로 판정
+function foreignStatus(d, p, prodLoaded) {
+  if (!prodLoaded) return "";
+  if (!p) return '<span class="tag st-missing">미배포</span>';
+  if (!d) return '<span class="tag st-warn">운영만 있음</span>';
+  const same = d.provision_count === p.provision_count && d.ko_count === p.ko_count && d.content_sig === p.content_sig;
+  if (same) return '<span class="tag st-ok">최신</span>';
+  const bits = [];
+  if (d.provision_count !== p.provision_count) bits.push(`조문 ${p.provision_count}→${d.provision_count}`);
+  if (d.ko_count !== p.ko_count) bits.push(`번역 ${p.ko_count}→${d.ko_count}`);
+  if (!bits.length) bits.push("본문 갱신");
+  return `<span class="tag st-behind" title="개발 ↔ 운영 지문 불일치">운영 지체</span> <span class="muted" style="font-size:12px">${esc(bits.join(" · "))}</span>`;
+}
+function foreignTable(devLaws, prodLaws) {
+  const prodLoaded = !!prodLaws;
+  const byCode = new Map();
+  const add = (laws, key) => (laws || []).forEach((l) => {
+    if (!byCode.has(l.code)) byCode.set(l.code, { code: l.code });
+    byCode.get(l.code)[key] = l;
+  });
+  add(devLaws, "dev"); add(prodLaws, "prod");
+  const entries = [...byCode.values()];
+  if (!entries.length) return `<div class="empty">해외법령 없음</div>`;
+  const meta = (e) => e.dev || e.prod;
+  entries.sort((a, b) => {
+    const ja = JURIS_RANK[meta(a).jurisdiction] ?? 9, jb = JURIS_RANK[meta(b).jurisdiction] ?? 9;
+    return ja - jb || a.code.localeCompare(b.code);
+  });
+  const colspan = prodLoaded ? 6 : 4;
+  let body = "", curJuris = null;
+  for (const e of entries) {
+    const m = meta(e), d = e.dev, p = e.prod;
+    if (m.jurisdiction !== curJuris) {
+      curJuris = m.jurisdiction;
+      body += `<tr><td colspan="${colspan}" style="background:rgba(255,255,255,.03);font-weight:600;padding:6px 12px">${esc(JURIS_LABEL[curJuris] || curJuris)}</td></tr>`;
+    }
+    const title = `${esc(m.title_ko || m.code)}${m.abbrev ? ` <span class="muted">(${esc(m.abbrev)})</span>` : ""}`;
+    const prodCells = prodLoaded
+      ? `<td class="code">${p ? koRate(p) : '<span class="muted">없음</span>'}</td>
+         <td>${foreignStatus(d, p, true)}</td>` : "";
+    body += `<tr>
+      <td class="code">${esc(e.code)}</td>
+      <td>${title}</td>
+      <td class="code">${d ? koRate(d) : '<span class="muted">없음</span>'}</td>
+      ${prodCells}
+      <td style="text-align:right">${d ? `<button class="btn btn-sm btn-amber" data-xfer="${esc(e.code)}" title="이 법 한 건만 운영으로 복제">이관 ▸</button>` : ""}</td>
+    </tr>`;
+  }
+  return `<table><thead><tr>
+    <th>code</th><th>법령명</th><th>개발 번역</th>
+    ${prodLoaded ? "<th>운영 번역</th><th>상태</th>" : ""}
+    <th></th>
+  </tr></thead><tbody>${body}</tbody></table>`;
+}
+
+// 이관 전 미리보기 패널 — dev↔prod 조(article) 단위 신규/변경/삭제
+function previewPanel(d) {
+  const artLine = (g, label, color) => g.count
+    ? `<div style="margin-top:6px"><b style="color:${color}">${label} ${g.count}개</b>${g.count ? ":" : ""}
+         <span class="muted code" style="font-size:12px">${g.sample.map(esc).join(", ")}${g.more ? ` …외 ${g.more}` : ""}</span></div>`
+    : "";
+  const head = d.dev_exists
+    ? (d.prod_exists ? "운영에 이미 있음 — <b>변경분만</b> 반영" : '<b style="color:var(--amber)">운영 미배포</b> — 전체 신규 적재')
+    : '<b style="color:var(--amber)">개발에 없음</b> — 이관 불가';
+  const nochange = d.dev_exists && d.prod_exists && (d.added.count + d.changed.count + d.removed.count === 0);
+  return `<div class="panel" style="border-left:3px solid var(--amber)">
+    <div class="btn-row" style="justify-content:space-between;margin-bottom:8px">
+      <b>이관 미리보기 · <span class="code">${esc(d.code)}</span></b>
+      <span class="muted">${head}</span>
+    </div>
+    <table><tbody>
+      <tr><td style="width:120px">조문(seg)</td><td class="code">운영 ${d.prod_segs} → 개발 ${d.dev_segs}</td></tr>
+      <tr><td>번역(seg)</td><td class="code">운영 ${d.prod_ko} → 개발 ${d.dev_ko}</td></tr>
+      <tr><td>조(article)</td><td class="code">운영 ${d.prod_articles} → 개발 ${d.dev_articles}</td></tr>
+    </tbody></table>
+    ${artLine(d.added, "신규 조", "var(--accent)")}
+    ${artLine(d.changed, "변경 조", "var(--amber)")}
+    ${artLine(d.removed, "삭제 조", "var(--muted)")}
+    ${nochange ? `<p class="muted" style="margin:8px 0 0">개발과 운영이 동일합니다(이관해도 변화 없음).</p>` : ""}
+    <div class="btn-row" style="margin-top:12px">
+      <button class="btn btn-amber" id="pv-go"${d.dev_exists ? "" : " disabled"}>이 내용으로 이관 ▸</button>
+      <button class="btn" id="pv-cancel">취소</button>
+    </div>
+  </div>`;
+}
+
+async function renderForeign() {
+  view.innerHTML = `
+    <h1>해외법령 이관</h1>
+    <p class="page-sub">단일 <code>fin_law_db</code> 안의 법(code)별로 개발→운영 복제. <b>선택한 법만 교체</b>되고 다른 나라 법은 그대로입니다.</p>
+    <div class="help">
+      <b>국내(ldb_&lt;code&gt;)와 구조가 달라 이관 방식이 다릅니다.</b>
+      <ul>
+        <li>국내는 1법=1DB라 DB 통째 복제하지만, 해외는 모든 나라 법이 <code>fin_law_db</code> 한 곳에 행으로 공존합니다.</li>
+        <li>그래서 <b>선택 code 한 건의 law + law_provision(원문·번역)만</b> 트랜잭션으로 갈아끼웁니다(다른 법 무해).</li>
+        <li>메모(<code>foreign_memo</code>)는 논리키 기반이라 이관과 무관하게 보존됩니다.</li>
+        <li><b>운영 불러와 비교</b> → 법별 <b>이관 ▸</b>(미리보기 후 실행), 또는 <b>지체 일괄 이관</b>으로 다른 법을 한 번에.</li>
+      </ul>
+    </div>
+    <div class="row" style="align-items:center;justify-content:space-between;margin:18px 0 12px">
+      <h2 style="margin:0">개발 / 운영 해외법령 현황 <span class="muted" style="font-size:13px;font-weight:400">— 법별 번역 커버리지·내용 지문 비교</span></h2>
+      <div class="btn-row" style="margin:0">
+        <button class="btn btn-sm" id="load-prod-f">운영(prod) 불러와 비교</button>
+        <button class="btn btn-sm btn-amber" id="xfer-stale" disabled title="미배포·운영지체 법을 한 번에 이관">지체 일괄 이관</button>
+      </div>
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden"><div id="foreign-status" class="muted" style="padding:18px"><span class="spinner"></span> 개발 현황 불러오는 중…</div></div>
+    <div id="f-preview" style="margin-top:14px"></div>
+    <div class="log" id="f-log" style="margin-top:16px"><span class="meta">법별 '이관 ▸' 버튼을 누르면 여기에 실시간 로그가 표시됩니다.</span></div>`;
+
+  let dev, prod = null;
+  try { dev = await api("/api/foreign/status?target=dev"); }
+  catch (e) { $("#foreign-status").innerHTML = `<p class="empty" style="padding:18px">${esc(e.message)}</p>`; return; }
+
+  const logEl = $("#f-log");
+  const refreshProd = async () => { try { prod = await api("/api/foreign/status?target=prod"); } catch (e) { /* keep stale */ } };
+  // dev 와 운영 지문이 다른(미배포 포함) code 목록 — 일괄 이관 대상
+  const staleCodes = () => {
+    if (!prod) return [];
+    const pmap = new Map((prod.laws || []).map((l) => [l.code, l]));
+    return (dev.laws || []).filter((d) => {
+      const p = pmap.get(d.code);
+      return !p || d.provision_count !== p.provision_count || d.ko_count !== p.ko_count || d.content_sig !== p.content_sig;
+    }).map((d) => d.code);
+  };
+
+  // 단건 이관 전 미리보기 → 확인 → 실행
+  async function showPreview(code) {
+    const pv = $("#f-preview");
+    pv.innerHTML = `<div class="panel"><span class="spinner"></span> '${esc(code)}' 미리보기(운영과 비교) 중…</div>`;
+    pv.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    let d;
+    try { d = await api(`/api/foreign/preview?code=${encodeURIComponent(code)}`); }
+    catch (e) { pv.innerHTML = `<div class="panel"><p class="empty">${esc(e.message)}</p></div>`; return; }
+    pv.innerHTML = previewPanel(d);
+    $("#pv-cancel").onclick = () => { pv.innerHTML = ""; };
+    $("#pv-go").onclick = () => {
+      if (!confirm(`'${code}' 를 운영 fin_law_db 로 이관합니다(해당 법만 교체). 계속할까요?`)) return;
+      const host = $("#foreign-status");
+      const btns = [...host.querySelectorAll("[data-xfer]"), $("#load-prod-f"), $("#xfer-stale"), $("#pv-go"), $("#pv-cancel")];
+      runStream(`/api/foreign/replicate?code=${encodeURIComponent(code)}`, logEl, btns, async (ok) => {
+        if (ok) { pv.innerHTML = ""; if (prod) { await refreshProd(); draw(); } }
+      });
+    };
+  }
+
+  const draw = () => {
+    const host = $("#foreign-status");
+    host.className = ""; host.style.padding = "0";
+    host.innerHTML = foreignTable(dev.laws, prod && prod.laws);
+    host.querySelectorAll("[data-xfer]").forEach((b) => { b.onclick = () => showPreview(b.dataset.xfer); });
+
+    // 일괄 이관 버튼 상태 갱신
+    const sb = $("#xfer-stale");
+    const stale = staleCodes();
+    if (!prod) { sb.disabled = true; sb.textContent = "지체 일괄 이관"; }
+    else { sb.disabled = stale.length === 0; sb.textContent = stale.length ? `지체 일괄 이관 (${stale.length})` : "전부 최신 ✓"; }
+    sb.onclick = () => {
+      if (!stale.length) return;
+      if (!confirm(`운영과 다른 ${stale.length}개 법을 일괄 이관합니다:\n\n${stale.join(", ")}\n\n각 법은 독립 트랜잭션(일부 실패해도 성공분 보존)입니다. 계속할까요?`)) return;
+      $("#f-preview").innerHTML = "";
+      const btns = [...host.querySelectorAll("[data-xfer]"), $("#load-prod-f"), sb];
+      runStream(`/api/foreign/replicate-bulk?codes=${encodeURIComponent(stale.join(","))}`, logEl, btns, async (ok) => {
+        if (ok) { await refreshProd(); draw(); }
+      });
+    };
+  };
+  draw();
+
+  $("#load-prod-f").onclick = async () => {
+    const b = $("#load-prod-f");
+    b.disabled = true; b.innerHTML = '<span class="spinner"></span> 운영 접속 중…';
+    try { await refreshProd(); if (!prod) throw new Error("운영 현황을 불러오지 못했습니다"); draw(); b.textContent = "운영 새로고침"; toast("운영 해외법령 불러옴", "ok"); }
+    catch (e) { toast(e.message, "err"); b.textContent = "운영(prod) 다시 시도"; }
+    finally { b.disabled = false; }
+  };
+}
+
 // ── router ────────────────────────────────────────────────
-const ROUTES = { "/": renderHome, "/intake": renderIntake, "/pipeline": renderPipeline, "/registry": renderRegistry, "/tools": renderTools };
+const ROUTES = { "/": renderHome, "/intake": renderIntake, "/pipeline": renderPipeline, "/registry": renderRegistry, "/foreign": renderForeign, "/tools": renderTools };
 
 function parseHash() {
   const raw = (location.hash || "#/").slice(1);

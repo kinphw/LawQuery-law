@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .routers import intake, pipeline, registry, status, tools
+from .routers import foreign, intake, pipeline, registry, status, tools
 
 app = FastAPI(title="LawQuery 허브", docs_url="/api/docs")
 app.include_router(intake.router)
@@ -16,6 +16,7 @@ app.include_router(pipeline.router)
 app.include_router(tools.router)
 app.include_router(status.router)
 app.include_router(registry.router)
+app.include_router(foreign.router)
 
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 
