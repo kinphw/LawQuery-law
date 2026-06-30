@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS `db_a` (
   `content_a` text DEFAULT NULL,
   `content_a_sched` text DEFAULT NULL COMMENT '시행예정 내용',
   `sched_date` varchar(10) DEFAULT NULL,
-  PRIMARY KEY (`_pk`)
+  PRIMARY KEY (`_pk`),
+  KEY `ix_a` (`id_a`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 시행령(Enforcement Decree)
@@ -23,7 +24,8 @@ CREATE TABLE IF NOT EXISTS `db_e` (
   `content_e` text DEFAULT NULL,
   `content_e_sched` text DEFAULT NULL COMMENT '시행예정 내용',
   `sched_date` varchar(10) DEFAULT NULL,
-  PRIMARY KEY (`_pk`)
+  PRIMARY KEY (`_pk`),
+  KEY `ix_e` (`id_e`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 감독규정(Supervisory Regulation)
@@ -34,7 +36,8 @@ CREATE TABLE IF NOT EXISTS `db_s` (
   `content_s` text DEFAULT NULL,
   `content_s_sched` text DEFAULT NULL COMMENT '시행예정 내용',
   `sched_date` varchar(10) DEFAULT NULL,
-  PRIMARY KEY (`_pk`)
+  PRIMARY KEY (`_pk`),
+  KEY `ix_s` (`id_s`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 감독규정시행세칙(Supervisory Rules)
@@ -45,7 +48,8 @@ CREATE TABLE IF NOT EXISTS `db_r` (
   `content_r` text DEFAULT NULL,
   `content_r_sched` text DEFAULT NULL COMMENT '시행예정 내용',
   `sched_date` varchar(10) DEFAULT NULL,
-  PRIMARY KEY (`_pk`)
+  PRIMARY KEY (`_pk`),
+  KEY `ix_r` (`id_r`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 5단째 본문 단(시행규칙 등 추가 단). 4단 법은 빈 테이블. 백엔드는 db_meta 단수로 step 판단.
@@ -56,7 +60,8 @@ CREATE TABLE IF NOT EXISTS `db_b` (
   `content_b` text DEFAULT NULL,
   `content_b_sched` text DEFAULT NULL COMMENT '시행예정 내용',
   `sched_date` varchar(10) DEFAULT NULL,
-  PRIMARY KEY (`_pk`)
+  PRIMARY KEY (`_pk`),
+  KEY `ix_b` (`id_b`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 별표
@@ -108,7 +113,9 @@ CREATE TABLE IF NOT EXISTS `rdb` (
   `id_start` text DEFAULT NULL,
   `id_end` text DEFAULT NULL,
   `track` varchar(20) DEFAULT NULL,
-  PRIMARY KEY (`_pk`)
+  PRIMARY KEY (`_pk`),
+  KEY `ix_rdb_start` (`id_start`(64)),
+  KEY `ix_rdb_end` (`id_end`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 인용 정밀 강조쌍: 하위 조의 어느 항/호(down_id)가 상위 조의 어느 항/호(up_id)를 인용하는가.
