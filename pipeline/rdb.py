@@ -78,15 +78,14 @@ def build_rdb(code: str) -> dict:
     def _first(tier, track):
         return next((r[f"id_{tier}"] for r in _rows(tier, track) if r.get(f"id_{tier}")), None)
 
-    def _seed(tier, track, parent):
+    def _seed(tier, track):
+        """무인용 도입조(목적 등) 앵커. **문서순(a/e/s/r/b) 직전 단의 첫 조**에 매달아
+        A1→E1→S1→규정1→세칙1 대각 정렬(부모단 아님 — 부모로 매달면 제1조가 행 분리됨).
+        트랙단(r/b)이면 같은 트랙의 첫 조. 도입부 이후 정밀인용이 나오면 앵커가 부모단으로 갱신됨."""
         u = umbrella.get(tier)
         if u:
             return u
-        ptrack = track if parent in ("r", "b") else None
-        f = _first(parent, ptrack)
-        if f:
-            return f
-        for pt in reversed(ORDER[:ORDER.index(tier)]):       # 직전 '존재하는' 단의 첫 조
+        for pt in reversed(ORDER[:ORDER.index(tier)]):       # 직전 '존재하는' 단의 첫 조(트랙 인지)
             f = _first(pt, track if pt in ("r", "b") else None)
             if f:
                 return f
@@ -103,7 +102,7 @@ def build_rdb(code: str) -> dict:
         pat = _citation_re(src["refers"])
         up_content = {r[f"id_{parent}"]: (r.get(f"content_{parent}") or "") for r in _rows(parent, ptrack)}
         up_split: dict = {}                          # 상위조 → 분할자식 id집합(강조 up_part 해석·캐시)
-        anchor = _seed(tier, track, parent)
+        anchor = _seed(tier, track)
         n_prec = n_inf = 0
         for row in _rows(tier, track):
             cid = row.get(f"id_{tier}")
