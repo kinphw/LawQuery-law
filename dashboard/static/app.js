@@ -634,6 +634,179 @@ async function renderRegistry(params) {
   await load();
 }
 
+// ── 해외 카탈로그 (dev/prod) — 카드 설명·태그·노출 큐레이션 ──
+// 원문(fin_law_db)은 sentinel 소유. 여기선 ldb_auth.foreign_catalog(표시 override)만 편집·복제.
+const FC_JLABEL = { eu: "EU", us: "미국", jp: "일본", hk: "홍콩", sg: "싱가포르", other: "기타" };
+const FC_STATUS = ["", "in_force", "enacted", "proposal", "repealed"];
+
+async function renderForeignCatalog(params) {
+  const target = params.target === "prod" ? "prod" : "dev";
+  view.innerHTML = `
+    <h1>해외 카탈로그</h1>
+    <p class="page-sub">해외법령 카드의 설명·태그·노출 큐레이션 (<code>ldb_auth.foreign_catalog</code>). 원문(<code>fin_law_db</code>)은 sentinel 소유 — 여기선 표시만. 카드 = 원문 메타 ⊕ 이 카탈로그(우선). 원문 DB 이관은 '해외법령 이관'에서 별도.</p>
+    <div class="seg">
+      <a href="#/foreign-catalog?target=dev" class="seg-btn ${target === "dev" ? "on" : ""}">개발 (dev)</a>
+      <a href="#/foreign-catalog?target=prod" class="seg-btn ${target === "prod" ? "on" : ""}">운영 (prod)</a>
+    </div>
+    <div class="panel">
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <div>
+          <b>개발 → 운영 일괄 복제</b><br>
+          <span class="muted" style="font-size:12px">운영 카탈로그를 개발과 <b>똑같이</b> 맞춥니다(추가·수정·삭제 일괄). 원문 본문 이관은 별도.</span>
+        </div>
+        <button class="btn btn-amber" id="fc-xfer">🔄 개발 → 운영 똑같이 복제</button>
+      </div>
+      <div id="fc-xfer-out" style="margin-top:12px"></div>
+    </div>
+    ${target === "prod" ? `<div class="help" style="border-left-color:var(--amber)"><b style="color:var(--amber)">⚠ 운영(prod) 카탈로그</b> — 저장/삭제가 사용자 화면에 즉시 반영됩니다(확인창 표시).</div>` : ""}
+    <div id="fc-body" class="muted"><span class="spinner"></span> 불러오는 중…</div>`;
+
+  // 개발 → 운영 일괄 복제: 미리보기(diff) → 확인 → 전체 교체
+  const xferOut = $("#fc-xfer-out");
+  const diffLine = (label, codes, cls) => codes.length
+    ? `<div style="margin:2px 0"><span class="tag ${cls}">${label} ${codes.length}</span> <span class="code">${codes.map(esc).join(", ")}</span></div>` : "";
+  $("#fc-xfer").onclick = async () => {
+    xferOut.innerHTML = `<span class="muted"><span class="spinner"></span> 개발 ↔ 운영 비교 중…</span>`;
+    let d;
+    try { d = await api("/api/foreign-catalog/replicate/preview"); }
+    catch (e) { xferOut.innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
+    if (d.unchanged) {
+      xferOut.innerHTML = `<div class="help" style="border-left-color:var(--ok,#3aa757)">운영이 이미 개발과 동일합니다 ✓ <span class="muted">(${d.dev_count}행)</span></div>`;
+      return;
+    }
+    xferOut.innerHTML = `
+      <div class="panel" style="background:var(--bg2,#1b1b1b)">
+        <p style="margin:0 0 8px">운영 카탈로그에 다음 변경을 적용합니다 <span class="muted">(개발 ${d.dev_count}행 → 운영 ${d.prod_count}행 기준)</span>:</p>
+        ${diffLine("추가", d.added, "st-ok")}
+        ${diffLine("변경", d.changed, "st-behind")}
+        ${diffLine("삭제", d.removed, "st-missing")}
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn btn-amber" id="fc-xfer-go">운영에 반영</button>
+          <button class="btn" id="fc-xfer-cancel">취소</button>
+        </div>
+      </div>`;
+    $("#fc-xfer-cancel").onclick = () => { xferOut.innerHTML = ""; };
+    $("#fc-xfer-go").onclick = async () => {
+      if (!confirm("운영(prod) 카탈로그를 개발과 똑같이 덮어씁니다. 사용자 화면에 즉시 반영됩니다. 계속할까요?")) return;
+      const go = $("#fc-xfer-go"); go.disabled = true; go.innerHTML = '<span class="spinner"></span> 복제 중…';
+      try {
+        const r = await api("/api/foreign-catalog/replicate", { method: "POST" });
+        xferOut.innerHTML = `<div class="help" style="border-left-color:var(--ok,#3aa757)">복제 완료 ✓ <span class="muted">운영 ${r.copied}행 (추가 ${r.added.length}·변경 ${r.changed.length}·삭제 ${r.removed.length})</span></div>`;
+        toast("운영 카탈로그 복제 완료", "ok");
+        load();
+      } catch (e) { toast(e.message, "err"); go.disabled = false; go.textContent = "운영에 반영"; }
+    };
+  };
+
+  async function load() {
+    let data;
+    try { data = await api(`/api/foreign-catalog?target=${target}`); }
+    catch (e) { $("#fc-body").innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
+    const rows = data.rows || [], unreg = data.unregistered || [];
+    $("#fc-body").innerHTML = `
+      <div class="panel">
+        <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+          <div class="field" style="max-width:150px"><label>코드</label>
+            <input type="text" id="fc-code" list="fc-unreg" autocomplete="off" placeholder="eu_psd2">
+            <datalist id="fc-unreg">${unreg.map((m) => `<option value="${esc(m.code)}">${esc(m.title_ko || m.code)}</option>`).join("")}</datalist>
+          </div>
+          <div class="field" style="max-width:110px"><label>관할</label>
+            <select id="fc-juris">${["", "eu", "us", "jp", "hk", "sg", "other"].map((j) => `<option value="${j}">${j ? esc(FC_JLABEL[j] || j) : "(자동)"}</option>`).join("")}</select></div>
+          <div class="field" style="min-width:200px"><label>한글명 <span class="hint">빈칸=원문 메타</span></label><input type="text" id="fc-title"></div>
+          <div class="field" style="max-width:120px"><label>약칭</label><input type="text" id="fc-abbrev"></div>
+          <div class="field" style="max-width:130px"><label>상태</label>
+            <select id="fc-status">${FC_STATUS.map((s) => `<option value="${s}">${s || "(자동)"}</option>`).join("")}</select></div>
+          <div class="field" style="max-width:80px"><label>순서</label><input type="text" id="fc-order" value="100"></div>
+          <div class="field" style="max-width:90px"><label>가상자산</label><label class="checkbox" style="padding-top:9px"><input type="checkbox" id="fc-crypto"> 예</label></div>
+          <div class="field" style="max-width:80px"><label>숨김</label><label class="checkbox" style="padding-top:9px"><input type="checkbox" id="fc-hidden"> 숨김</label></div>
+        </div>
+        <div class="field"><label>설명(요약) <span class="hint">카드·뷰어 1~2문장</span></label><textarea id="fc-summary" rows="2"></textarea></div>
+        <div class="row" style="flex-wrap:wrap">
+          <div class="field" style="flex:1;min-width:220px"><label>태그 <span class="hint">콤마로 구분</span></label><input type="text" id="fc-tags" placeholder="건전성, 자본규제, 바젤"></div>
+          <div class="field" style="flex:1;min-width:220px"><label>주요 내용 <span class="hint">한 줄에 하나</span></label><textarea id="fc-hl" rows="2"></textarea></div>
+        </div>
+        <input type="hidden" id="fc-lawtype">
+        <div class="btn-row">
+          <button class="btn btn-primary" id="fc-save">추가 / 수정 저장</button>
+          <button class="btn" id="fc-clear">폼 비우기</button>
+          ${unreg.length ? `<span class="muted">미등록 ${unreg.length}건(원문엔 있으나 카탈로그 없음) — 코드칸 ▼ 에서 선택</span>` : ""}
+        </div>
+      </div>
+      <div class="panel" style="padding:0;overflow:hidden">
+        ${rows.length ? `<table><thead><tr><th>코드</th><th>관할</th><th>한글명</th><th>상태</th><th>태그</th><th>노출</th><th></th></tr></thead><tbody>
+          ${rows.map((r) => `<tr data-code="${esc(r.code)}" style="cursor:pointer">
+            <td class="code">${esc(r.code)}</td>
+            <td>${r.jurisdiction ? esc(FC_JLABEL[r.jurisdiction] || r.jurisdiction) : '<span class="muted">—</span>'}</td>
+            <td>${r.title_ko ? esc(r.title_ko) : '<span class="muted">(원문)</span>'}${r.summary ? "" : ' <span class="tag st-behind" title="설명 없음">설명없음</span>'}</td>
+            <td>${r.status ? esc(r.status) : '<span class="muted">—</span>'}</td>
+            <td>${(r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join(" ") || '<span class="muted">—</span>'}</td>
+            <td>${r.hidden ? '<span class="tag st-missing">숨김</span>' : '<span class="tag st-ok">노출</span>'}</td>
+            <td style="text-align:right"><button class="btn btn-sm" data-del="${esc(r.code)}">삭제</button></td>
+          </tr>`).join("")}
+        </tbody></table>` : `<div class="empty">카탈로그 항목 없음</div>`}
+      </div>`;
+
+    const set = (r) => {
+      $("#fc-code").value = r.code || "";
+      $("#fc-juris").value = r.jurisdiction || "";
+      $("#fc-title").value = r.title_ko || "";
+      $("#fc-abbrev").value = r.abbrev || "";
+      $("#fc-status").value = r.status || "";
+      $("#fc-order").value = r.sort_order ?? 100;
+      $("#fc-crypto").checked = !!r.is_crypto;
+      $("#fc-hidden").checked = !!r.hidden;
+      $("#fc-summary").value = r.summary || "";
+      $("#fc-tags").value = (r.tags || []).join(", ");
+      $("#fc-hl").value = (r.highlights || []).join("\n");
+      $("#fc-lawtype").value = r.law_type || "";
+    };
+    const clear = () => { set({ sort_order: 100 }); $("#fc-code").focus(); };
+    $("#fc-clear").onclick = clear;
+
+    $("#fc-body").querySelectorAll("tr[data-code]").forEach((tr) => {
+      tr.onclick = (e) => {
+        if (e.target.dataset.del) return;
+        const r = rows.find((x) => x.code === tr.dataset.code);
+        if (r) { set(r); window.scrollTo({ top: 0, behavior: "smooth" }); }
+      };
+    });
+    $("#fc-body").querySelectorAll("[data-del]").forEach((b) => {
+      b.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`${target === "prod" ? "운영(prod) " : ""}카탈로그에서 '${b.dataset.del}' 제거할까요? (원문은 그대로 — 카드는 원문 메타로 폴백)`)) return;
+        try { await api(`/api/foreign-catalog/${b.dataset.del}?target=${target}`, { method: "DELETE" }); toast("삭제됨", "ok"); load(); }
+        catch (err) { toast(err.message, "err"); }
+      };
+    });
+    $("#fc-save").onclick = async () => {
+      const code = $("#fc-code").value.trim().toLowerCase();
+      if (!code) { toast("코드를 입력하세요", "err"); return; }
+      if (target === "prod" && !confirm(`운영(prod) 카탈로그에 '${code}' 저장합니다. 사용자 화면에 즉시 반영됩니다. 계속할까요?`)) return;
+      const payload = {
+        code,
+        jurisdiction: $("#fc-juris").value,
+        title_ko: $("#fc-title").value.trim(),
+        abbrev: $("#fc-abbrev").value.trim(),
+        status: $("#fc-status").value,
+        law_type: $("#fc-lawtype").value,
+        is_crypto: $("#fc-crypto").checked,
+        summary: $("#fc-summary").value.trim(),
+        tags: $("#fc-tags").value.split(",").map((s) => s.trim()).filter(Boolean),
+        highlights: $("#fc-hl").value.split("\n").map((s) => s.trim()).filter(Boolean),
+        sort_order: Number($("#fc-order").value) || 100,
+        hidden: $("#fc-hidden").checked,
+      };
+      try {
+        await api(`/api/foreign-catalog?target=${target}`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+        });
+        toast("저장됨", "ok"); load();
+      } catch (err) { toast(err.message, "err"); }
+    };
+  }
+  await load();
+}
+
 // ── 해외법령 이관 (dev/prod 비교 + 법 단위 복제) ───────────
 // 국내 ldb_<code> 와 달리 해외법령은 단일 fin_law_db 안에 모든 나라 법이 공존 →
 // DB 통째 덤프가 아니라 선택 code 한 건만 교체(다른 나라 법 무해).
@@ -824,7 +997,7 @@ async function renderForeign() {
 }
 
 // ── router ────────────────────────────────────────────────
-const ROUTES = { "/": renderHome, "/intake": renderIntake, "/pipeline": renderPipeline, "/registry": renderRegistry, "/foreign": renderForeign, "/tools": renderTools };
+const ROUTES = { "/": renderHome, "/intake": renderIntake, "/pipeline": renderPipeline, "/registry": renderRegistry, "/foreign": renderForeign, "/foreign-catalog": renderForeignCatalog, "/tools": renderTools };
 
 function parseHash() {
   const raw = (location.hash || "#/").slice(1);
