@@ -49,6 +49,18 @@ def save(body: RegistryIn, target: str = Query("dev")):
     return {"ok": True}
 
 
+@router.get("/replicate/preview")
+def replicate_preview():
+    """개발→운영 일괄 복제 시 적용될 변경 미리보기(쓰기 없음)."""
+    return _wrap("prod", regstore.replicate_preview)
+
+
+@router.post("/replicate")
+def replicate():
+    """운영 law_registry 를 개발과 동일하게 일괄 복제(전체 교체)."""
+    return _wrap("prod", regstore.replicate_to_prod)
+
+
 @router.delete("/{code}")
 def remove(code: str, target: str = Query("dev")):
     _guard(target)

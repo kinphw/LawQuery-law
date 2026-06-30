@@ -500,8 +500,59 @@ async function renderRegistry(params) {
       <a href="#/registry?target=dev" class="seg-btn ${target === "dev" ? "on" : ""}">개발 (dev)</a>
       <a href="#/registry?target=prod" class="seg-btn ${target === "prod" ? "on" : ""}">운영 (prod)</a>
     </div>
+    <div class="panel">
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <div>
+          <b>개발 → 운영 일괄 복제</b><br>
+          <span class="muted" style="font-size:12px">운영 레지스트리를 개발과 <b>똑같이</b> 맞춥니다(추가·수정·삭제 일괄). 한 줄씩 고칠 필요 없음. 법령 본문 DB 배포는 별도(파이프라인·복제).</span>
+        </div>
+        <button class="btn btn-amber" id="reg-xfer">🔄 개발 → 운영 똑같이 복제</button>
+      </div>
+      <div id="reg-xfer-out" style="margin-top:12px"></div>
+    </div>
     ${target === "prod" ? `<div class="help" style="border-left-color:var(--amber)"><b style="color:var(--amber)">⚠ 운영(prod) 레지스트리</b> — 저장/삭제가 사용자 노출에 즉시 반영됩니다(확인창 표시).</div>` : ""}
     <div id="reg-body" class="muted"><span class="spinner"></span> 불러오는 중…</div>`;
+
+  // 개발 → 운영 일괄 복제: 미리보기(diff) → 확인 → 전체 교체
+  const xferOut = $("#reg-xfer-out");
+  const diffLine = (label, codes, cls) => codes.length
+    ? `<div style="margin:2px 0"><span class="tag ${cls}">${label} ${codes.length}</span> <span class="code">${codes.map(esc).join(", ")}</span></div>` : "";
+  $("#reg-xfer").onclick = async () => {
+    xferOut.innerHTML = `<span class="muted"><span class="spinner"></span> 개발 ↔ 운영 비교 중…</span>`;
+    let d;
+    try { d = await api("/api/registry/replicate/preview"); }
+    catch (e) { xferOut.innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
+    if (d.unchanged) {
+      xferOut.innerHTML = `<div class="help" style="border-left-color:var(--ok,#3aa757)">운영이 이미 개발과 동일합니다 ✓ <span class="muted">(${d.dev_count}행)</span></div>`;
+      return;
+    }
+    const warn = d.missing_db && d.missing_db.length
+      ? `<div class="help" style="border-left-color:var(--amber);margin-top:8px"><b style="color:var(--amber)">⚠ 운영에 본문 DB(ldb_*) 없음</b> — <span class="code">${d.missing_db.map(esc).join(", ")}</span> 는 노출되지만 본문이 없어 렌더되지 않을 수 있습니다. 본문 DB를 먼저 배포하세요.</div>`
+      : "";
+    xferOut.innerHTML = `
+      <div class="panel" style="background:var(--bg2,#1b1b1b)">
+        <p style="margin:0 0 8px">운영 레지스트리에 다음 변경을 적용합니다 <span class="muted">(개발 ${d.dev_count}행 → 운영 ${d.prod_count}행 기준)</span>:</p>
+        ${diffLine("추가", d.added, "st-ok")}
+        ${diffLine("변경", d.changed, "st-behind")}
+        ${diffLine("삭제", d.removed, "st-missing")}
+        ${warn}
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn btn-amber" id="reg-xfer-go">운영에 반영</button>
+          <button class="btn" id="reg-xfer-cancel">취소</button>
+        </div>
+      </div>`;
+    $("#reg-xfer-cancel").onclick = () => { xferOut.innerHTML = ""; };
+    $("#reg-xfer-go").onclick = async () => {
+      if (!confirm("운영(prod) 레지스트리를 개발과 똑같이 덮어씁니다. 사용자 노출에 즉시 반영됩니다. 계속할까요?")) return;
+      const go = $("#reg-xfer-go"); go.disabled = true; go.innerHTML = '<span class="spinner"></span> 복제 중…';
+      try {
+        const r = await api("/api/registry/replicate", { method: "POST" });
+        xferOut.innerHTML = `<div class="help" style="border-left-color:var(--ok,#3aa757)">복제 완료 ✓ <span class="muted">운영 ${r.copied}행 (추가 ${r.added.length}·변경 ${r.changed.length}·삭제 ${r.removed.length})</span></div>`;
+        toast("운영 레지스트리 복제 완료", "ok");
+        load();
+      } catch (e) { toast(e.message, "err"); go.disabled = false; go.textContent = "운영에 반영"; }
+    };
+  };
 
   async function load() {
     let data;
