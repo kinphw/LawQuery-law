@@ -13,8 +13,8 @@ split_body(text) → 유닛 리스트:
 import re
 
 _HEADER = re.compile(
-    r'^제(\d+)조(?:의(\d+))?(\([^)]*\)|\s*삭\s*제(?:\s*<[^>]+>)?)'   # g1=조 g2=가지 g3=괄호/삭제(날짜 선택)
-    r'|^제(\d+)(장|절)',                                       # g4=번호 g5=장|절
+    r'^제(\d+)(?:-(\d+))?조(?:의(\d+))?(\s*\([^)]*\)|\s*삭\s*제(?:\s*<[^>]+>)?)'   # g1=조(편-조면 편) g2=편-조의 조 g3=가지 g4=괄호/삭제(앞 공백 허용)
+    r'|^제(\d+)(편|장|절|관)',                                  # g5=번호 g6=편|장|절|관
     re.M,
 )
 _HANG = re.compile(r'^[①-⑮]')
@@ -37,17 +37,35 @@ _MOK_SEQ = ('가나다라마바사아자차카타파하'
             '구누두루무부수우주추쿠투푸후')
 
 
+def segment_admin_body(text: str) -> str:
+    """행정규칙 본문에서 조/편/장 헤더 앞에 개행 삽입(조간 분리 보장).
+
+    일부 대형 규정(금융투자업규정 등)은 API가 본문을 **개행 없는 한 덩어리**로 준다
+    (편-조 '제1편 총칙제1-1조(목적)…' 처럼 헤더가 붙어 옴). 줄머리 기준 split_body가
+    못 잡으므로 헤더 앞에 개행을 넣는다. 조 헤더는 **뒤에 '(' 또는 '삭 제'가 붙은 경우만**
+    분리 → '법 제8조제1항' 같은 인용(괄호 없음)은 건드리지 않음.
+
+    **개행이 이미 있는 본문(소형 규정 c/t 등)은 헤더가 줄머리에 있고, 본문 중 '제N조(…)'
+    인용이 있으면 잘못 쪼갤 수 있어 그대로 통과**시킨다. 인라인(개행 0) 본문에만 분리 적용."""
+    if '\n' in text:                                   # 이미 줄 단위로 옴 → 손대지 않음
+        return _norm(text)
+    text = re.sub(r'(?=제\d+(?:-\d+)?조(?:의\d+)?\s*(?:\(|삭\s*제))', '\n', text)   # 조 헤더(제목/삭제)
+    text = re.sub(r'(?=제\d+(?:편|장|절|관)\s)', '\n', text)                        # 편/장/절/관 제목
+    return _norm(text)                                                              # 중복/선두 개행 정리
+
+
 def format_admin_body(text: str) -> str:
     """행정규칙 본문(API가 조 단위로 주며 항/호/목이 한 줄에 붙어 옴) → 항/호/목 앞 개행 삽입.
 
     법/시행령은 구조화 API라 이미 분리됨. 이 함수는 admrul 문자열 전용.
+    먼저 segment_admin_body로 조간 개행을 보장(인라인 대형 규정 대응) 후,
     날짜 등 <…> 보호 후 항(①)·호(N.)·목(가.) 마커 앞에 개행. 목은 가→나→다 시퀀스로만 분리(문장끝 '~다.' 오삽입 방지).
     """
-    return '\n'.join(_format_admin_line(ln) for ln in _norm(text).split('\n'))
+    return '\n'.join(_format_admin_line(ln) for ln in segment_admin_body(_norm(text)).split('\n'))
 
 
 def _format_admin_line(line: str) -> str:
-    if not re.match(r'제\d+조', line):     # 장/절 등은 그대로
+    if not re.match(r'제\d+(?:-\d+)?조', line):     # 장/절/편 등은 그대로(편-조 ' 제1-1조' 포함)
         return line
     holds: list[str] = []
     s = re.sub(r'<[^>]*>', lambda m: holds.append(m.group(0)) or f'\x01{len(holds)-1}\x02', line)
@@ -87,11 +105,11 @@ def split_body(text: str) -> list[dict]:
     for i, m in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         chunk = text[m.start():end].strip('\n')
-        if m.group(5):  # 장/절
+        if m.group(6):  # 편/장/절/관
             units.append({'type': 'title', 'title': chunk.split('\n', 1)[0].strip()})
             continue
-        jo = int(m.group(1))
-        ga = int(m.group(2)) if m.group(2) else None
+        jo = f"{m.group(1)}-{m.group(2)}" if m.group(2) else int(m.group(1))   # 편-조면 'P-N' 문자열
+        ga = int(m.group(3)) if m.group(3) else None
         stem, items = _split_article(chunk)
         units.append({'type': 'article', 'jo': jo, 'ga': ga,
                       'head': m.group(0).strip(), 'stem': stem, 'items': items})

@@ -1,0 +1,20 @@
+{
+  "annex": {
+    "modify": {
+      "Bfi._F1":   { "id_src": "Bfi.3-23" },
+      "Bfi._F2":   { "id_src": "Bfi.6-4_2" },
+      "Rfi._F2":   { "id_src": "Rfi.2-2" },
+      "Rfi._F2_2": { "id_src": "Rfi.2-9" },
+      "Rfi._F2_3": { "id_src": "Rfi.2-3_2" },
+      "Rfi._F6":   { "id_src": "Rfi.2-12" },
+      "Rfi._F7":   { "id_src": "Rfi.2-12" },
+      "Rfi._F8":   { "id_src": "Rfi.2-12" },
+      "Rfi._F9":   { "id_src": "Rfi.2-12" },
+      "Rfi._F10":  { "id_src": "Rfi.2-12" },
+      "Rfi._F11":  { "id_src": "Rfi.2-12" },
+      "Rfi._F25":  { "id_src": "Rfi.2-2" },
+      "Rfi._F26":  { "id_src": "Rfi.2-2" }
+    }
+  },
+  "content": {}
+}

@@ -8,15 +8,17 @@ Article(공통 입력 — API/텍스트 둘 다 이 형태로 정규화):
 _UP = {'a': 'A', 'e': 'E', 's': 'S', 'r': 'R', 'b': 'B'}
 
 
-def stem_id(tier: str, jo, ga=None) -> str:
-    base = f"{_UP[tier]}{jo}"
+def stem_id(tier: str, jo, ga=None, track=None) -> str:
+    """노드 ID. 멀티트랙(행정규칙 병렬) 법령은 track 코드를 박아 전역 유일화:
+    R1-1(단일) vs Rfi.1-1 / Rsd.1-1(트랙). 구분자 '.'는 편-조(-)·가지/항호(_)와 충돌 안 함."""
+    base = f"{_UP[tier]}" + (f"{track}." if track else "") + f"{jo}"
     return f"{base}_{ga}" if ga else base
 
 
-def resolve_node(tier, jo, ga=None, hang=None, ho=None, nodeset=None):
+def resolve_node(tier, jo, ga=None, hang=None, ho=None, nodeset=None, track=None):
     """인용 (조[의ga][제hang항][제ho호]) → nodeset에 존재하는 **가장 세밀한** 노드 ID.
     nodeset 없으면 조 ID. 매칭 없으면 None. 입도(항/호) 해석의 단일 출처."""
-    base = stem_id(tier, jo, ga)
+    base = stem_id(tier, jo, ga, track)
     cands = []
     if hang and ho:
         cands.append(f"{base}_{hang}h_{ho}ho")
@@ -30,7 +32,7 @@ def resolve_node(tier, jo, ga=None, hang=None, ho=None, nodeset=None):
     return next((c for c in cands if c in nodeset), None)
 
 
-def rows_for_tier(tier: str, articles: list[dict]) -> list[dict]:
+def rows_for_tier(tier: str, articles: list[dict], track=None) -> list[dict]:
     rows: list[dict] = []
     seq = 0
     for art in articles:
@@ -44,7 +46,7 @@ def rows_for_tier(tier: str, articles: list[dict]) -> list[dict]:
                 rows.append({'seq': seq, f'id_{tier}': None, f'content_{tier}': art['title'],
                              f'content_{tier}_sched': None, 'sched_date': None})
             continue
-        sid = stem_id(tier, art['jo'], art.get('ga'))
+        sid = stem_id(tier, art['jo'], art.get('ga'), track)
         seq += 1
         rows.append(_row(tier, seq, sid, sid, art['title'], art['stem']))
         for k, item in enumerate(art.get('items', []), 1):

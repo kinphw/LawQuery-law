@@ -30,14 +30,14 @@ def _ident(row, cols):
 
 
 def auto_rows(code, sheet):
-    if sheet in CONTENT_TIERS + ("meta",):
+    if sheet in CONTENT_TIERS + ("meta", "track"):
         return read_artifact(code, "data.json").get(sheet, [])
     if sheet == "annex":
         return read_artifact(code, "annex.json")
     if sheet == "ref":
         return read_artifact(code, "ref.json")
     if sheet == "rdb":
-        return [{"id_start": e["id_start"], "id_end": e["id_end"]}
+        return [{"id_start": e["id_start"], "id_end": e["id_end"], "track": e.get("track")}
                 for e in read_artifact(code, "rdb.json")["edges"]]
     if sheet == "rdb_hl":
         return [{"up_id": h["up"], "down_id": h["down"]}

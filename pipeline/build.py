@@ -10,7 +10,7 @@ from fetcher import law_api
 from lawparse import splitter
 from lawparse.ids import rows_for_tier, stem_id
 from common.schema_map import SHEETS
-from pipeline import load_job, write_artifact
+from pipeline import load_job, write_artifact, tier_units
 
 
 def _join_law_article(a: dict) -> str:
@@ -98,7 +98,8 @@ def build(code: str) -> dict:
     data = {sh: [] for sh in SHEETS}
     meta = []
     sched_all = {}                                       # 시행예정 {nodeID:[미래본문,시행일]} (적용은 splits 후)
-    for tier, src in job["sources"].items():
+    for unit in tier_units(job):
+        tier, track, src = unit["tier"], unit["track"], unit["src"]
         n_sched = 0
         if src["kind"] == "law":
             name, eff, arts = _law_articles(src)
@@ -107,14 +108,18 @@ def build(code: str) -> dict:
                 sched_all.update(sm); n_sched = len(sm)
         else:
             name, eff, arts = _admin_articles(src["id"])
-        data[tier] = rows_for_tier(tier, arts)
+        data[tier].extend(rows_for_tier(tier, arts, track=track))   # 트랙별 누적(같은 tier 반복)
         meta.append({"origin": tier, "full_name": f"{name}\n[시행 {eff}]",
-                     "short_name": src.get("short", tier)})
+                     "short_name": src.get("short", tier), "track": track})
         ref = src.get("id") or f"MST{src.get('mst')}@{src.get('ef_yd')}"
         nj = sum(1 for a in arts if a.get("type") != "title")
         sx = f" (+시행예정 노드 {n_sched})" if n_sched else ""
-        print(f"  {tier} ({src['kind']} {ref}): {name} — {nj}조{sx}")
+        tx = f" [track={track}]" if track else ""
+        print(f"  {tier}{tx} ({src['kind']} {ref}): {name} — {nj}조{sx}")
     data["meta"] = meta
+    from pipeline import job_tracks
+    data["track"] = [{"track_code": c, "label": l, "sort_order": i}
+                     for i, (c, l) in enumerate(job_tracks(job).items(), 1)]
     write_artifact(code, "data.json", data)
     write_artifact(code, "sched.json", sched_all)
     sig = " ".join(f"{t}:{len(data[t])}" for t in ("a", "e", "s", "r", "b") if data.get(t))

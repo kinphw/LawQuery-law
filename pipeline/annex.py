@@ -14,11 +14,11 @@ import re
 import sys
 
 from fetcher import law_api
-from pipeline import load_job, read_artifact, write_artifact
+from pipeline import load_job, read_artifact, write_artifact, tier_units
 
 UP = {"a": "A", "e": "E", "s": "S", "r": "R", "b": "B"}
 BASE = "https://www.law.go.kr"
-_REL = re.compile(r"제(\d+)조(?:의(\d+))?[^)]*관련")   # (제N조[의M] … 관련)
+_REL = re.compile(r"제(\d+)(?:-(\d+))?조(?:의(\d+))?[^)]*관련")   # (제N조[의M] … 관련), 편-조 제P-N조 포함
 
 
 def _source_annexes(src: dict):
@@ -58,14 +58,18 @@ def _viewer_url(path: str, name: str, pub, annex_no: str) -> str:
     return f"{BASE}/{path}/({inner})"
 
 
-def _src_from_body(tier: str, no: int, ga, data: dict, form: bool = False):
+def _src_from_body(tier: str, no: int, ga, data: dict, form: bool = False, track=None):
     if form:                                              # 별지 제N호[의M]서식
         pat = re.compile(rf"별\s*지\s*제?\s*{no}\s*호" + (rf"\s*의\s*{ga}" if ga else ""))
     else:                                                 # 별표 N[의M]
         pat = re.compile(rf"별\s*표\s*{no}" + (rf"\s*의\s*{ga}" if ga else r"(?!\s*의\s*\d)"))
+    pre = f"{UP[tier]}{track}." if track else None
     for row in data[tier]:
+        rid = row.get(f"id_{tier}")
+        if pre and not (rid or "").startswith(pre):       # 트랙단이면 같은 트랙 행만
+            continue
         if pat.search(row.get(f"content_{tier}") or ""):
-            return row[f"id_{tier}"]
+            return rid
     return None
 
 
@@ -73,31 +77,39 @@ def build_annex(code: str) -> list[dict]:
     job = load_job(code)
     data = read_artifact(code, "data.json")
     rows, nolink = [], []
-    for tier, src in job["sources"].items():
+    for unit in tier_units(job):
+        tier, track, src = unit["tier"], unit["track"], unit["src"]
+        ns = f"{track}." if track else ""                 # 트랙 네임스페이스(Rfi. …)
         path, name, pub, items = _source_annexes(src)
+        track_ids = {r[f"id_{tier}"] for r in data[tier]
+                     if (r.get(f"id_{tier}") or "").startswith(f"{UP[tier]}{ns}")} if track else \
+                    {r[f"id_{tier}"] for r in data[tier] if r.get(f"id_{tier}")}
         parent_src = {}                                   # (form,no) → 부모 별표 연결조(가지 상속용)
+        n0, nl0 = len(rows), len(nolink)
         for b in items:
             m = None if b["form"] else _REL.search(b["title"])   # (제N조 관련)은 별표만
             if m:
-                src_id = f"{UP[tier]}{int(m.group(1))}" + (f"_{int(m.group(2))}" if m.group(2) else "")
-                if src_id not in {r[f"id_{tier}"] for r in data[tier]}:
-                    src_id = _src_from_body(tier, b["no"], b["ga"], data, b["form"])
+                jo_key = f"{m.group(1)}-{m.group(2)}" if m.group(2) else m.group(1)   # 편-조면 'P-N'
+                src_id = f"{UP[tier]}{ns}{jo_key}" + (f"_{int(m.group(3))}" if m.group(3) else "")
+                if src_id not in track_ids:
+                    src_id = _src_from_body(tier, b["no"], b["ga"], data, b["form"], track)
             else:
-                src_id = _src_from_body(tier, b["no"], b["ga"], data, b["form"])
+                src_id = _src_from_body(tier, b["no"], b["ga"], data, b["form"], track)
             if not b["ga"]:
                 parent_src[(b["form"], b["no"])] = src_id
             elif not src_id:                              # 가지 별표 본문 미참조 → 부모 별표의 조 상속
                 src_id = parent_src.get((b["form"], b["no"]))
             kind, pfx = ("별지", "F") if b["form"] else ("별표", "AN")
             no = f"{kind}{b['no']}" + (f"의{b['ga']}" if b["ga"] else "")
-            aid = f"{UP[tier]}_{pfx}{b['no']}" + (f"_{b['ga']}" if b["ga"] else "")
+            aid = f"{UP[tier]}{ns}_{pfx}{b['no']}" + (f"_{b['ga']}" if b["ga"] else "")
             rows.append({"origin": tier, "id_annex": aid, "annex_no": no, "id_src": src_id or "",
                          "annex_name": b["title"], "annex_url": _viewer_url(path, name, pub, no)})
             if not src_id:
                 nolink.append(aid)
-        n = sum(1 for r in rows if r["origin"] == tier)
+        n = len(rows) - n0
         if n:
-            print(f"  {tier}: 별표 {n} (미연결 {sum(1 for a in nolink if a.startswith(UP[tier]))})")
+            tx = f"[{track}]" if track else ""
+            print(f"  {tier}{tx}: 별표 {n} (미연결 {len(nolink) - nl0})")
     write_artifact(code, "annex.json", rows)
     print(f"저장: jobs/{code}/annex.json  별표 {len(rows)} (미연결 {len(nolink)})")
     return rows

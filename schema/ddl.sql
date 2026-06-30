@@ -71,13 +71,22 @@ CREATE TABLE IF NOT EXISTS `db_annex` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci COMMENT='별표 개별 데이터';
 
--- 법령명 메타 (단별 1행: origin a/e/s/r)
+-- 법령명 메타 (단별 1행: origin a/e/s/r/b). 멀티트랙이면 r/b 가 트랙별 행(track 컬럼으로 구분).
 CREATE TABLE IF NOT EXISTS `db_meta` (
   `_pk` int(11) NOT NULL AUTO_INCREMENT,
   `origin` char(1) NOT NULL,
   `full_name` text DEFAULT NULL,
   `short_name` varchar(50) DEFAULT NULL,
+  `track` varchar(20) DEFAULT NULL COMMENT '멀티트랙 r/b 구분(단일트랙=NULL)',
   PRIMARY KEY (`_pk`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+
+-- 행정규칙 병렬 트랙 목록(UX 토글). 멀티트랙 법령만 행 존재(단일트랙=빈 테이블).
+CREATE TABLE IF NOT EXISTS `db_track` (
+  `track_code` varchar(20) NOT NULL,
+  `label` varchar(100) DEFAULT NULL COMMENT '토글 표시명(예: 금융투자업)',
+  `sort_order` int(11) NOT NULL DEFAULT 1,
+  PRIMARY KEY (`track_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 참조
@@ -92,11 +101,13 @@ CREATE TABLE IF NOT EXISTS `db_ref` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 
 -- 연계 엣지 (id_start → id_end). 5단 연계의 핵심.
+-- track: 멀티트랙 r/b 엣지의 트랙코드. 공유단(a/e/s) 엣지는 NULL → 재귀쿼리가 (track IS NULL OR track=?)로 활성 트랙만 탐색.
 CREATE TABLE IF NOT EXISTS `rdb` (
   `_pk` bigint(20) NOT NULL AUTO_INCREMENT,
   `id` bigint(20) DEFAULT NULL,
   `id_start` text DEFAULT NULL,
   `id_end` text DEFAULT NULL,
+  `track` varchar(20) DEFAULT NULL,
   PRIMARY KEY (`_pk`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 

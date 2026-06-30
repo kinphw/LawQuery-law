@@ -8,28 +8,37 @@ import sys
 
 from fetcher import law_api
 from lawparse import splitter
-from pipeline import load_job, read_artifact
+from pipeline import load_job, read_artifact, tier_units
 
-_HDR = re.compile(r"(?:^|\n)제(\d+)조(?:의(\d+))?\s*(?:\(|삭\s*제)")
+_HDR = re.compile(r"(?:^|\n)제(\d+)(?:-(\d+))?조(?:의(\d+))?\s*(?:\(|삭\s*제)")  # g1=조(편-조면 편) g2=편-조의 조 g3=가지
+
+
+def _is_tracked(i: str) -> bool:
+    return bool(i) and i[0] in "RB" and len(i) > 1 and i[1].islower()
 
 
 def check(code: str) -> bool:
     job = load_job(code)
     data = read_artifact(code, "data.json")
     ok = True
-    for tier, src in job["sources"].items():
-        have = {r[f"id_{tier}"] for r in data[tier] if r.get(f"id_{tier}")}  # 장/절 title행(id None) 제외
+    for unit in tier_units(job):
+        tier, track, src = unit["tier"], unit["track"], unit["src"]
+        pre = f"{tier.upper()}{track}." if track else None
+        belongs = (lambda i: bool(i) and i.startswith(pre)) if pre else (lambda i: bool(i) and not _is_tracked(i))
+        have = {r[f"id_{tier}"] for r in data.get(tier, []) if belongs(r.get(f"id_{tier}"))}  # title행(id None) 제외
+        tx = f"[{track}]" if track else ""
         if src["kind"] == "law":
-            print(f"  {tier}(law): {len(have)}조 (구조화 API)")
+            print(f"  {tier}{tx}(law): {len(have)}조 (구조화 API)")
             continue
-        body = splitter._norm(law_api.get_admin_rule_text(src["id"])["조문내용"])
-        want = {f"{tier.upper()}{int(jo)}" + (f"_{int(ga)}" if ga else "")
-                for jo, ga in _HDR.findall("\n" + body)}
+        body = splitter.segment_admin_body(splitter._norm(law_api.get_admin_rule_text(src["id"])["조문내용"]))
+        ns = f"{track}." if track else ""
+        want = {f"{tier.upper()}{ns}" + (f"{jo}-{pn}" if pn else jo) + (f"_{int(ga)}" if ga else "")
+                for jo, pn, ga in _HDR.findall("\n" + body)}
         miss, extra = want - have, have - want
         status = "OK" if not miss and not extra else "❌"
         if miss or extra:
             ok = False
-        print(f"  {tier}(admrul): 원문 {len(want)} / 데이터 {len(have)} {status}"
+        print(f"  {tier}{tx}(admrul): 원문 {len(want)} / 데이터 {len(have)} {status}"
               + (f"  누락={sorted(miss)}" if miss else "")
               + (f"  과잉={sorted(extra)}" if extra else ""))
     print("QA " + ("통과" if ok else "실패"))

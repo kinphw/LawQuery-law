@@ -40,7 +40,7 @@ def _db_exists(code: str, target: str) -> bool:
 
 ALL_STAGES = ["build", "rdb", "annex", "ref", "penalty"]
 STAGE_SHEETS = {                                  # 각 단계가 적재하는 테이블(부분 적재용)
-    "build":   ["meta", "a", "e", "s", "r", "b"],
+    "build":   ["meta", "track", "a", "e", "s", "r", "b"],
     "rdb":     ["rdb", "rdb_hl"],
     "annex":   ["annex"],
     "ref":     ["ref"],

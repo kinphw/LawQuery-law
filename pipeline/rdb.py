@@ -9,12 +9,12 @@
 import re
 import sys
 
-from pipeline import load_job, read_artifact, write_artifact
+from pipeline import load_job, read_artifact, write_artifact, tier_units
 from lawparse.article_split import split_article
 from lawparse.ids import resolve_node
 
 UP = {"a": "A", "e": "E", "s": "S", "r": "R", "b": "B"}
-_DELETED = re.compile(r"^제\d+조(?:의\d+)?\s*삭\s*제\s*<")
+_DELETED = re.compile(r"^제\d+(?:-\d+)?조(?:의\d+)?\s*삭\s*제\s*<")
 _HANG = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮"
 
 
@@ -51,45 +51,64 @@ def _alias_re(alias: str) -> str:
 
 def _citation_re(refers: list[str]) -> re.Pattern:
     body = "|".join(_alias_re(a) for a in refers)
-    # 조[의M] 까지로 엣지 결정 + 항/호(그룹3·4)는 강조쌍 정밀위치용
-    return re.compile(rf"(?:{body})(?:\s*\([^)]*\))?\s*제(\d+)조(?:의(\d+))?(?:제(\d+)항)?(?:제(\d+)호)?")
+    # 조[의M] 까지로 엣지 결정 + 항/호(그룹4·5)는 강조쌍 정밀위치용. g1=조(편-조면 편) g2=편-조의 조 g3=가지
+    return re.compile(rf"(?:{body})(?:\s*\([^)]*\))?\s*제(\d+)(?:-(\d+))?조(?:의(\d+))?(?:제(\d+)항)?(?:제(\d+)호)?")
+
+
+def _is_tracked(i: str) -> bool:
+    """트랙 네임스페이스 ID(Rfi.1-1 / Bsd.2) 여부 — 단 letter 뒤가 소문자."""
+    return bool(i) and i[0] in "RB" and len(i) > 1 and i[1].islower()
 
 
 def build_rdb(code: str) -> dict:
     job = load_job(code)
     data = read_artifact(code, "data.json")
-    nodes = {t: {r[f"id_{t}"] for r in data.get(t, [])} for t in ("a", "e", "s", "r", "b")}
+    nodes = {t: {r[f"id_{t}"] for r in data.get(t, []) if r.get(f"id_{t}")} for t in ("a", "e", "s", "r", "b")}
+    umbrella = job.get("umbrella", {})
+    ORDER = ["a", "e", "s", "r", "b"]
 
-    # 스파인 기본 앵커: 무인용 '도입부' 조(목적·정의 등 상위법을 통째 지칭)는 직전 단의 첫 조에
-    # 매달아 A1→E1→S1→R1→B1 대각 정렬(모두 A1 직속이 되는 UX 문제 해소).
-    # job.json umbrella[tier] 가 있으면 그게 우선(명시 override). 도입부 이후 정밀인용이 나오면
-    # 앵커가 그 상위조로 갱신되므로 스파인은 '첫 정밀인용 전' 도입부 묶음에만 적용된다.
-    present = list(job["sources"].keys())
-    first_node = {t: next((r[f"id_{t}"] for r in data.get(t, []) if r.get(f"id_{t}")), None)
-                  for t in present}
+    def _rows(tier, track):
+        """그 tier·track 의 행. 멀티트랙이면 ID prefix(R<track>.)로, 단일이면 비트랙 행."""
+        idk = f"id_{tier}"
+        if track is None:
+            return [r for r in data.get(tier, []) if not _is_tracked(r.get(idk) or "")]
+        pre = f"{UP[tier]}{track}."
+        return [r for r in data.get(tier, []) if (r.get(idk) or "").startswith(pre)]
 
-    def _seed(tier: str):
-        u = job.get("umbrella", {}).get(tier)
+    def _first(tier, track):
+        return next((r[f"id_{tier}"] for r in _rows(tier, track) if r.get(f"id_{tier}")), None)
+
+    def _seed(tier, track, parent):
+        u = umbrella.get(tier)
         if u:
             return u
-        for pt in reversed(present[:present.index(tier)]):   # 직전 '존재하는' 단의 첫 조
-            if first_node.get(pt):
-                return first_node[pt]
+        ptrack = track if parent in ("r", "b") else None
+        f = _first(parent, ptrack)
+        if f:
+            return f
+        for pt in reversed(ORDER[:ORDER.index(tier)]):       # 직전 '존재하는' 단의 첫 조
+            f = _first(pt, track if pt in ("r", "b") else None)
+            if f:
+                return f
         return None
 
     edges, inferred, deleted, multi, highlights = [], [], [], [], []
-    for tier, src in job["sources"].items():
+    for unit in tier_units(job):
+        tier, track, src = unit["tier"], unit["track"], unit["src"]
         parent = src.get("parent")
         if not parent:
             continue
-        up = UP[parent]
+        ptrack = track if parent in ("r", "b") else None     # 부모가 트랙단(r/b)이면 같은 트랙
+        up = f"{UP[parent]}" + (f"{ptrack}." if ptrack else "")
         pat = _citation_re(src["refers"])
-        up_content = {r[f"id_{parent}"]: (r.get(f"content_{parent}") or "") for r in data[parent]}
+        up_content = {r[f"id_{parent}"]: (r.get(f"content_{parent}") or "") for r in _rows(parent, ptrack)}
         up_split: dict = {}                          # 상위조 → 분할자식 id집합(강조 up_part 해석·캐시)
-        anchor = _seed(tier)
+        anchor = _seed(tier, track, parent)
         n_prec = n_inf = 0
-        for row in data[tier]:
-            cid = row[f"id_{tier}"]
+        for row in _rows(tier, track):
+            cid = row.get(f"id_{tier}")
+            if not cid:                              # 장/절/편 제목행 — 엣지 안 만듦
+                continue
             body = row.get(f"content_{tier}") or ""
             if _DELETED.match(body.strip()):
                 deleted.append(cid)
@@ -97,16 +116,17 @@ def build_rdb(code: str) -> dict:
             # 본문 등장순 상위 조 인용(존재·중복제거)
             cs, seen = [], set()
             for m in pat.finditer(body):
-                nid = f"{up}{int(m.group(1))}" + (f"_{int(m.group(2))}" if m.group(2) else "")
+                jo_key = f"{m.group(1)}-{m.group(2)}" if m.group(2) else m.group(1)  # 편-조면 'P-N'
+                nid = f"{up}{jo_key}" + (f"_{int(m.group(3))}" if m.group(3) else "")
                 if nid not in nodes[parent]:
                     continue
                 if nid not in seen:
                     seen.add(nid); cs.append(nid)
                 # 정밀 강조쌍 — 상위 어느 항/호 ↔ 하위(자기) 어느 항/호 (항/호 인용일 때만)
-                if m.group(3) or m.group(4):
-                    jo = int(m.group(1)); ga = int(m.group(2)) if m.group(2) else None
-                    hang = int(m.group(3)) if m.group(3) else None
-                    ho = int(m.group(4)) if m.group(4) else None
+                if m.group(4) or m.group(5):
+                    ga = int(m.group(3)) if m.group(3) else None
+                    hang = int(m.group(4)) if m.group(4) else None
+                    ho = int(m.group(5)) if m.group(5) else None
                     if nid not in up_split:
                         up_split[nid] = {c for c, _ in split_article(nid, up_content.get(nid, ""), "hangho")[1]}
                     # 인용이 들어있는 '실제 위치'의 항/호 — 같은 인용문이 여러 항에 나와도
@@ -114,23 +134,24 @@ def build_rdb(code: str) -> dict:
                     u = _unit_at(body, m.start())
                     down_part = f"{cid}_{u}h" if u else cid
                     # 같은 조 내 나열/범위까지 모두 강조: '제1호, 제2호 및 제4호', '제1호부터 제3호까지'
-                    unit = "호" if ho else "항"
-                    for nn in _enum_nums(body[m.end():], unit, ho if ho else hang):
-                        up_part = (resolve_node(parent, jo, ga, hang, nn, up_split[nid]) if ho
-                                   else resolve_node(parent, jo, ga, nn, None, up_split[nid]))
+                    unit_kw = "호" if ho else "항"
+                    for nn in _enum_nums(body[m.end():], unit_kw, ho if ho else hang):
+                        up_part = (resolve_node(parent, jo_key, ga, hang, nn, up_split[nid], track=ptrack) if ho
+                                   else resolve_node(parent, jo_key, ga, nn, None, up_split[nid], track=ptrack))
                         if up_part and up_part != nid:   # 정밀 노드로 좁혀졌을 때만
                             highlights.append({"up": up_part, "down": down_part})
             if cs:
-                edges.append({"id_start": cs[0], "id_end": cid})
+                edges.append({"id_start": cs[0], "id_end": cid, "track": track})
                 anchor = cs[0]                       # 직전 앵커 갱신
                 n_prec += 1
                 if len(cs) > 1:
                     multi.append({"child": cid, "primary": cs[0], "others": cs[1:]})
             elif anchor:
-                edges.append({"id_start": anchor, "id_end": cid})
+                edges.append({"id_start": anchor, "id_end": cid, "track": track})
                 inferred.append({"id_start": anchor, "id_end": cid})
                 n_inf += 1
-        print(f"  {tier}→{parent}: 정밀 {n_prec}, 엄브렐러 {n_inf}")
+        tx = f"[{track}]" if track else ""
+        print(f"  {tier}{tx}→{parent}: 정밀 {n_prec}, 엄브렐러 {n_inf}")
 
     # 강조쌍 중복 제거(여러 매치가 같은 쌍 낼 수 있음)
     highlights = [{"up": u, "down": d} for (u, d) in sorted({(h["up"], h["down"]) for h in highlights})]
